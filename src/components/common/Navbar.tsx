@@ -75,7 +75,7 @@ export const Navbar: React.FC = () => {
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search podis, pachadlu, pure oils, vadiyalu..."
+                placeholder="Search items..."
                 className="w-full pl-10 pr-4 py-2.5 bg-white border border-[#ebe0cd] rounded-full text-sm placeholder-stone-400 focus:outline-hidden focus:border-[#2d5a27] focus:ring-1 focus:ring-[#2d5a27] transition-all shadow-2xs"
               />
               <Search className="absolute left-3.5 top-3 w-4 h-4 text-stone-400" />
@@ -183,7 +183,7 @@ export const Navbar: React.FC = () => {
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder="Search farm products..."
+                  placeholder="Search items..."
                   className="w-full pl-9 pr-3 py-2 bg-white border border-[#ebe0cd] rounded-lg text-sm"
                 />
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-stone-400" />

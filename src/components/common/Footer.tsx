@@ -156,11 +156,6 @@ export const Footer: React.FC = () => {
             <Heart className="w-3.5 h-3.5 text-rose-400 fill-rose-400" />
             <span>for authentic Indian farm purity & tradition</span>
           </div>
-          <div className="flex items-center gap-4 text-[11px]">
-            <Link to="/admin" className="text-[#c58940] hover:underline font-medium">
-              Administrator Login
-            </Link>
-          </div>
         </div>
       </div>
     </footer>

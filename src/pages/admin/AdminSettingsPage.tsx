@@ -13,7 +13,8 @@ import {
   Phone,
   Mail,
   MapPin,
-  Sparkles
+  Sparkles,
+  Image as ImageIcon
 } from 'lucide-react';
 
 export const AdminSettingsPage: React.FC = () => {
@@ -60,7 +61,7 @@ export const AdminSettingsPage: React.FC = () => {
             Store & Infrastructure Settings
           </h1>
           <p className="text-xs text-stone-500 mt-0.5">
-            Configure delivery charges, announcements, and view database connection status
+            Configure delivery charges, announcements, hero banner images, and view database connection status
           </p>
         </div>
 
@@ -187,7 +188,7 @@ export const AdminSettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 4. Farm Contact Information */}
+        {/* 4. Farm Contact Information & Hero Banner Image */}
         <div className="bg-white p-6 rounded-3xl border border-[#ebe0cd] shadow-2xs space-y-4">
           <h3 className="font-serif font-bold text-sm text-stone-900 border-b border-stone-100 pb-3 flex items-center gap-2">
             <MapPin className="w-4 h-4 text-[#1b4332]" />
@@ -233,6 +234,23 @@ export const AdminSettingsPage: React.FC = () => {
                 className="w-full px-3.5 py-2.5 bg-[#faf7f2] border border-[#ebe0cd] rounded-xl text-xs"
               />
             </div>
+
+            <div className="sm:col-span-2 pt-2 border-t border-stone-100">
+              <label className="text-xs font-semibold text-stone-700 block mb-1 flex items-center gap-1.5">
+                <ImageIcon className="w-4 h-4 text-[#1b4332]" />
+                <span>Homepage Hero Banner Image URL (Optional)</span>
+              </label>
+              <input
+                type="url"
+                value={(settings as any).hero_image_url || ''}
+                onChange={e => setSettings({ ...settings, hero_image_url: e.target.value } as any)}
+                placeholder="https://images.unsplash.com/... (leave blank for default meal photo)"
+                className="w-full px-3.5 py-2.5 bg-[#faf7f2] border border-[#ebe0cd] rounded-xl text-xs"
+              />
+              <span className="text-[10px] text-stone-400 mt-1 block">
+                Paste any high-resolution image link to replace the rice bowl meal photo on the homepage banner.
+              </span>
+            </div>
           </div>
         </div>
 
@@ -240,7 +258,7 @@ export const AdminSettingsPage: React.FC = () => {
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-3 bg-[#1b4332] hover:bg-[#2d5a27] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2"
+            className="px-6 py-3 bg-[#1b4332] hover:bg-[#2d5a27] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-2 cursor-pointer"
           >
             <Save className="w-4 h-4" />
             <span>{saving ? 'Saving Settings...' : 'Save All Settings'}</span>

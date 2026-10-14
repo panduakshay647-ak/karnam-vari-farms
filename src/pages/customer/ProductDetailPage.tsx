@@ -149,12 +149,12 @@ export const ProductDetailPage: React.FC = () => {
 
   const handleAddToCart = () => {
     if (isOutOfStock) return;
-    addToCart(product, selectedVariant || undefined, quantity);
+    addToCart(product, selectedVariant || product.variants[0], quantity);
   };
 
   const handleBuyNow = () => {
     if (isOutOfStock) return;
-    addToCart(product, selectedVariant || undefined, quantity);
+    addToCart(product, selectedVariant || product.variants[0], quantity);
     navigate('/checkout');
   };
 
@@ -374,7 +374,7 @@ export const ProductDetailPage: React.FC = () => {
               <button
                 onClick={handleAddToCart}
                 disabled={isOutOfStock}
-                className="w-full py-3.5 px-6 bg-[#1b4332] hover:bg-[#2d5a27] disabled:bg-stone-200 disabled:text-stone-400 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-6 bg-[#1b4332] hover:bg-[#2d5a27] disabled:bg-stone-200 disabled:text-stone-400 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <ShoppingBag className="w-4 h-4" />
                 <span>{isOutOfStock ? 'Sold Out' : 'Add to Cart'}</span>
@@ -383,7 +383,7 @@ export const ProductDetailPage: React.FC = () => {
               <button
                 onClick={handleBuyNow}
                 disabled={isOutOfStock}
-                className="w-full py-3.5 px-6 bg-[#c58940] hover:bg-[#a06d29] disabled:bg-stone-200 disabled:text-stone-400 text-stone-900 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                className="w-full py-3.5 px-6 bg-[#c58940] hover:bg-[#a06d29] disabled:bg-stone-200 disabled:text-stone-400 text-stone-900 font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <Zap className="w-4 h-4 fill-stone-900" />
                 <span>Buy Now with 1-Click</span>
@@ -410,7 +410,7 @@ export const ProductDetailPage: React.FC = () => {
         <div className="flex border-b border-[#f4eee2] gap-6 text-sm font-semibold">
           <button
             onClick={() => setActiveTab('desc')}
-            className={`pb-3 border-b-2 transition-colors ${
+            className={`pb-3 border-b-2 transition-colors cursor-pointer ${
               activeTab === 'desc'
                 ? 'border-[#1b4332] text-[#1b4332]'
                 : 'border-transparent text-stone-400 hover:text-stone-700'
@@ -420,7 +420,7 @@ export const ProductDetailPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('ingredients')}
-            className={`pb-3 border-b-2 transition-colors ${
+            className={`pb-3 border-b-2 transition-colors cursor-pointer ${
               activeTab === 'ingredients'
                 ? 'border-[#1b4332] text-[#1b4332]'
                 : 'border-transparent text-stone-400 hover:text-stone-700'
@@ -430,7 +430,7 @@ export const ProductDetailPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('storage')}
-            className={`pb-3 border-b-2 transition-colors ${
+            className={`pb-3 border-b-2 transition-colors cursor-pointer ${
               activeTab === 'storage'
                 ? 'border-[#1b4332] text-[#1b4332]'
                 : 'border-transparent text-stone-400 hover:text-stone-700'
@@ -499,7 +499,7 @@ export const ProductDetailPage: React.FC = () => {
 
           <button
             onClick={() => setIsReviewModalOpen(true)}
-            className="px-5 py-2.5 bg-[#1b4332] text-white text-xs font-semibold rounded-xl hover:bg-[#2d5a27] transition-colors flex items-center gap-2 self-start"
+            className="px-5 py-2.5 bg-[#1b4332] text-white text-xs font-semibold rounded-xl hover:bg-[#2d5a27] transition-colors flex items-center gap-2 self-start cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Write a Review</span>
@@ -589,7 +589,7 @@ export const ProductDetailPage: React.FC = () => {
                         type="button"
                         key={star}
                         onClick={() => setReviewRating(star)}
-                        className="p-1"
+                        className="p-1 cursor-pointer"
                       >
                         <Star
                           className={`w-6 h-6 ${
@@ -647,7 +647,7 @@ export const ProductDetailPage: React.FC = () => {
                 <button
                   type="submit"
                   disabled={reviewSubmitting}
-                  className="w-full py-2.5 bg-[#1b4332] text-white text-xs font-bold rounded-xl hover:bg-[#2d5a27] transition-colors"
+                  className="w-full py-2.5 bg-[#1b4332] text-white text-xs font-bold rounded-xl hover:bg-[#2d5a27] transition-colors cursor-pointer"
                 >
                   {reviewSubmitting ? 'Submitting...' : 'Post Review'}
                 </button>

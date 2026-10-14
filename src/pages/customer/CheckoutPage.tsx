@@ -82,7 +82,7 @@ export const CheckoutPage: React.FC = () => {
     const shippingAddress: ShippingAddress = {
       full_name: fullName.trim(),
       phone: phone.trim(),
-      email: email.trim() || undefined,
+      email: email.trim() || '',
       address_line: addressLine.trim(),
       landmark: landmark.trim() || undefined,
       city: city.trim(),
