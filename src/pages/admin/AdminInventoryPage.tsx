@@ -18,6 +18,7 @@ export const AdminInventoryPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [logs, setLogs] = useState<InventoryLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Filters
   const [search, setSearch] = useState('');
@@ -37,11 +38,19 @@ export const AdminInventoryPage: React.FC = () => {
 
   const fetchInventory = async () => {
     setLoading(true);
-    const prods = await dataService.getProducts();
-    const storedLogs: InventoryLog[] = JSON.parse(localStorage.getItem('kvf_inv_logs_v1') || '[]');
-    setProducts(prods);
-    setLogs(storedLogs.slice(0, 15));
-    setLoading(false);
+    setErrorMsg(null);
+    try {
+      const [prods, inventoryLogs] = await Promise.all([
+        dataService.getProducts(),
+        dataService.getInventoryLogs(15),
+      ]);
+      setProducts(prods);
+      setLogs(inventoryLogs);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to load inventory.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -66,16 +75,22 @@ export const AdminInventoryPage: React.FC = () => {
     e.preventDefault();
     if (!adjustingItem) return;
 
+    setErrorMsg(null);
     setSubmitting(true);
-    await dataService.updateVariantStock(
-      adjustingItem.productId,
-      adjustingItem.variantId,
-      Math.max(0, newStockVal),
-      adjustReason
-    );
-    setSubmitting(false);
-    setAdjustingItem(null);
-    fetchInventory();
+    try {
+      await dataService.updateVariantStock(
+        adjustingItem.productId,
+        adjustingItem.variantId,
+        Math.max(0, newStockVal),
+        adjustReason
+      );
+      setAdjustingItem(null);
+      await fetchInventory();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to adjust inventory.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const filteredProducts = products.filter(p => {
@@ -140,6 +155,13 @@ export const AdminInventoryPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {errorMsg && (
+        <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {/* Stock Matrix Table */}
       <div className="bg-white rounded-3xl border border-[#ebe0cd] shadow-2xs overflow-hidden">

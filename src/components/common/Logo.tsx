@@ -22,7 +22,7 @@ export const Logo: React.FC<LogoProps> = ({
 
   const titleSizes = {
     sm: 'text-lg',
-    md: 'text-xl md:text-2xl',
+    md: 'text-base sm:text-xl md:text-2xl',
     lg: 'text-2xl md:text-3xl',
   };
 
@@ -88,7 +88,7 @@ export const Logo: React.FC<LogoProps> = ({
               isDark ? 'text-[#8b4513]' : 'text-[#d4a373]'
             }`}
           >
-            Pure Farm Delicacies
+            Made with Love
           </span>
         )}
       </div>

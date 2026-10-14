@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { dataService } from '../../services/dataService';
 import { Category, Product } from '../../types';
 import { ProductCard } from '../../components/common/ProductCard';
+import { CatalogLoadError } from '../../components/common/CatalogLoadError';
 import { ChevronRight, ArrowLeft } from 'lucide-react';
 
 export const CategoryPage: React.FC = () => {
@@ -10,36 +11,69 @@ export const CategoryPage: React.FC = () => {
   const [category, setCategory] = useState<Category | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const [sortBy, setSortBy] = useState<'popular' | 'price-asc' | 'price-desc'>('popular');
 
   useEffect(() => {
-    if (!slug) return;
+    let active = true;
+    if (!slug) {
+      setLoading(false);
+      return () => {
+        active = false;
+      };
+    }
     setLoading(true);
+    setLoadError(null);
 
-    dataService.getCategoryBySlug(slug).then(cat => {
-      setCategory(cat);
-      if (cat) {
+    const loadCategory = async () => {
+      try {
+        const cat = await dataService.getCategoryBySlug(slug);
+        if (!active) return;
+        setCategory(cat);
+        if (cat) {
         dataService.trackEvent('category_view', { category_slug: slug, category_name: cat.name }, undefined, cat.id);
-        dataService
-          .getProducts({
+          const prods = await dataService.getProducts({
             categoryId: cat.id,
             sortBy,
-          })
-          .then(prods => {
-            setProducts(prods);
-            setLoading(false);
           });
-      } else {
-        setLoading(false);
+          if (active) setProducts(prods);
+        } else {
+          setProducts([]);
+        }
+      } catch (error) {
+        if (active) {
+          setCategory(null);
+          setProducts([]);
+          setLoadError(error instanceof Error ? error.message : 'Unable to load this farm category.');
+        }
+      } finally {
+        if (active) setLoading(false);
       }
-    });
-  }, [slug, sortBy]);
+    };
+
+    void loadCategory();
+    return () => {
+      active = false;
+    };
+  }, [slug, sortBy, retryCount]);
 
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 text-center">
         <div className="inline-block w-8 h-8 border-4 border-[#1b4332] border-t-transparent rounded-full animate-spin" />
         <p className="text-xs text-stone-500 mt-3">Loading farm category...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16">
+        <CatalogLoadError
+          message={loadError}
+          onRetry={() => setRetryCount(count => count + 1)}
+        />
       </div>
     );
   }

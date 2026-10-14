@@ -14,13 +14,15 @@ import {
   AlertCircle,
   X,
   Layers,
-  Image as ImageIcon
+  Image as ImageIcon,
+  RotateCcw
 } from 'lucide-react';
 
 export const AdminProductsPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
@@ -57,13 +59,19 @@ export const AdminProductsPage: React.FC = () => {
 
   const fetchCatalog = async () => {
     setLoading(true);
-    const [prods, cats] = await Promise.all([
-      dataService.getProducts({ includeArchived: true }),
-      dataService.getCategories(true),
-    ]);
-    setProducts(prods);
-    setCategories(cats);
-    setLoading(false);
+    setCatalogError(null);
+    try {
+      const [prods, cats] = await Promise.all([
+        dataService.getProducts({ includeArchived: true }),
+        dataService.getCategories(true),
+      ]);
+      setProducts(prods);
+      setCategories(cats);
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Unable to load the product catalog.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -235,6 +243,7 @@ export const AdminProductsPage: React.FC = () => {
       fetchCatalog();
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to save product.');
+      await fetchCatalog();
     } finally {
       setSubmitting(false);
     }
@@ -248,8 +257,25 @@ export const AdminProductsPage: React.FC = () => {
     )
       return;
 
-    await dataService.deleteProduct(p.id);
-    fetchCatalog();
+    setCatalogError(null);
+    try {
+      const archived = await dataService.deleteProduct(p.id);
+      if (!archived) throw new Error('Product was not found in the database.');
+      await fetchCatalog();
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Unable to archive product.');
+    }
+  };
+
+  const handleRestoreProduct = async (product: Product) => {
+    setCatalogError(null);
+    try {
+      const restored = await dataService.restoreProduct(product.id);
+      if (!restored) throw new Error('Product was not found in the database.');
+      await fetchCatalog();
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Unable to restore product.');
+    }
   };
 
   const filteredProducts = products.filter(p => {
@@ -285,6 +311,13 @@ export const AdminProductsPage: React.FC = () => {
           <span>Add New Farm Product</span>
         </button>
       </div>
+
+      {catalogError && (
+        <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{catalogError}</span>
+        </div>
+      )}
 
       {/* Filter Toolbar */}
       <div className="bg-white p-4 rounded-2xl border border-[#ebe0cd] shadow-2xs flex flex-wrap items-center justify-between gap-4">
@@ -414,7 +447,15 @@ export const AdminProductsPage: React.FC = () => {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        {!prod.is_archived && (
+                        {prod.is_archived ? (
+                          <button
+                            onClick={() => handleRestoreProduct(prod)}
+                            className="p-1.5 text-stone-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                            title="Restore product"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        ) : (
                           <button
                             onClick={() => handleDeleteProduct(prod)}
                             className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
@@ -540,11 +581,10 @@ export const AdminProductsPage: React.FC = () => {
 
                 <div>
                   <label className="text-xs font-semibold text-stone-700 block mb-1">
-                    Short Description *
+                    Short Description (Optional)
                   </label>
                   <input
                     type="text"
-                    required
                     value={shortDesc}
                     onChange={e => setShortDesc(e.target.value)}
                     placeholder="Brief 1-sentence summary for cards..."
@@ -554,11 +594,10 @@ export const AdminProductsPage: React.FC = () => {
 
                 <div>
                   <label className="text-xs font-semibold text-stone-700 block mb-1">
-                    Full Description *
+                    Full Description (Optional)
                   </label>
                   <textarea
                     rows={3}
-                    required
                     value={fullDesc}
                     onChange={e => setFullDesc(e.target.value)}
                     placeholder="Ancestral story, preparation technique, pair with hot rice..."

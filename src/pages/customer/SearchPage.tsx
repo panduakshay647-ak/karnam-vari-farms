@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { dataService } from '../../services/dataService';
 import { Product } from '../../types';
 import { ProductCard } from '../../components/common/ProductCard';
+import { CatalogLoadError } from '../../components/common/CatalogLoadError';
 import { Search, ArrowLeft } from 'lucide-react';
 
 export const SearchPage: React.FC = () => {
@@ -12,27 +13,45 @@ export const SearchPage: React.FC = () => {
   const [inputVal, setInputVal] = useState(query);
   const [results, setResults] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
+    let active = true;
     setInputVal(query);
     if (!query.trim()) {
       setResults([]);
+      setLoadError(null);
       setLoading(false);
-      return;
+      return () => {
+        active = false;
+      };
     }
 
     setLoading(true);
+    setLoadError(null);
     dataService.trackEvent('page_view', { page: 'search', query });
 
-    dataService
-      .getProducts({
+    dataService.getProducts({
         search: query.trim(),
       })
       .then(prods => {
+        if (!active) return;
         setResults(prods);
-        setLoading(false);
+      })
+      .catch(error => {
+        if (!active) return;
+        setResults([]);
+        setLoadError(error instanceof Error ? error.message : 'Unable to search the farm catalog.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-  }, [query]);
+
+    return () => {
+      active = false;
+    };
+  }, [query, retryCount]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,6 +113,11 @@ export const SearchPage: React.FC = () => {
         <div className="py-12 text-center text-xs text-stone-500">
           Searching Karnam Vari Farms catalog...
         </div>
+      ) : loadError ? (
+        <CatalogLoadError
+          message={loadError}
+          onRetry={() => setRetryCount(count => count + 1)}
+        />
       ) : results.length > 0 ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {results.map(prod => (

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { dataService } from '../../services/dataService';
+import { supabase } from '../../lib/supabase';
 import { Logo } from '../common/Logo';
 import {
   LayoutDashboard,
@@ -26,13 +27,14 @@ import {
 } from 'lucide-react';
 
 export const AdminLayout: React.FC = () => {
-  const { user, isAdmin, loginAdmin, logout } = useAuth();
+  const { user, isAdmin, authReady, loginAdmin, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [emailInput, setEmailInput] = useState('admin@karnamvarifarms.com');
-  const [passwordInput, setPasswordInput] = useState('KarnamAdmin2026!');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
@@ -41,34 +43,73 @@ export const AdminLayout: React.FC = () => {
   const [lowStockCount, setLowStockCount] = useState(0);
 
   useEffect(() => {
-    const refreshBadges = async () => {
-      const orders = await dataService.getOrders();
-      setPendingOrdersCount(orders.filter(o => o.order_status === 'pending' || o.order_status === 'confirmed').length);
+    if (!authReady || !isAdmin) return;
+    let active = true;
 
-      const products = await dataService.getProducts();
-      setLowStockCount(products.filter(p => p.stock_quantity <= 15).length);
+    const refreshBadges = async () => {
+      try {
+        const [orders, products] = await Promise.all([
+          dataService.getOrders(),
+          dataService.getProducts(),
+        ]);
+        if (!active) return;
+        setPendingOrdersCount(orders.filter(o => o.order_status === 'pending' || o.order_status === 'confirmed').length);
+        setLowStockCount(products.filter(p => p.stock_quantity <= 15).length);
+      } catch {
+        if (!active) return;
+        setPendingOrdersCount(0);
+        setLowStockCount(0);
+      }
     };
 
-    refreshBadges();
+    void refreshBadges();
     const unsubOrders = dataService.subscribe('orders', refreshBadges);
     const unsubProducts = dataService.subscribe('products', refreshBadges);
 
     return () => {
+      active = false;
       unsubOrders();
       unsubProducts();
     };
-  }, []);
+  }, [authReady, isAdmin]);
 
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
     setIsLoggingIn(true);
-    const res = await loginAdmin(emailInput, passwordInput);
-    setIsLoggingIn(false);
-    if (!res.success) {
-      setLoginError(res.error || 'Invalid credentials');
+    try {
+      const res = await loginAdmin(emailInput, passwordInput);
+      if (!res.success) setLoginError(res.error || 'Invalid credentials');
+    } catch (error) {
+      setLoginError(error instanceof Error ? error.message : 'Unable to sign in. Please try again.');
+    } finally {
+      setIsLoggingIn(false);
     }
   };
+
+  const handleAdminLogout = async () => {
+    setLogoutError(null);
+    try {
+      if (supabase) {
+        await supabase.auth.signOut({ scope: 'global' });
+      }
+      await logout();
+      navigate('/admin', { replace: true });
+    } catch (error) {
+      setLogoutError(error instanceof Error ? error.message : 'Unable to sign out. Please try again.');
+    }
+  };
+
+  if (!authReady) {
+    return (
+      <div className="min-h-screen bg-[#132e23] flex items-center justify-center p-4">
+        <div className="text-center space-y-3">
+          <div className="inline-block w-8 h-8 border-4 border-[#c58940] border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs text-[#bcddc5]">Checking administrator session...</p>
+        </div>
+      </div>
+    );
+  }
 
   // If not authenticated as Admin, show high-security Admin Portal Login
   if (!isAdmin) {
@@ -104,7 +145,7 @@ export const AdminLayout: React.FC = () => {
                 required
                 value={emailInput}
                 onChange={e => setEmailInput(e.target.value)}
-                placeholder="admin@karnamvarifarms.com"
+                placeholder="Enter admin email"
                 className="w-full px-3.5 py-2.5 bg-white border border-[#ebe0cd] rounded-xl text-xs text-stone-900 focus:outline-hidden focus:border-[#1b4332]"
               />
             </div>
@@ -126,18 +167,12 @@ export const AdminLayout: React.FC = () => {
             <button
               type="submit"
               disabled={isLoggingIn}
-              className="w-full py-3 bg-[#1b4332] hover:bg-[#2d5a27] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+              className="w-full py-3 bg-[#1b4332] hover:bg-[#2d5a27] text-white text-xs font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Lock className="w-4 h-4" />
               <span>{isLoggingIn ? 'Authenticating...' : 'Sign In to Dashboard'}</span>
             </button>
           </form>
-
-          <div className="bg-[#f2f7f4] border border-[#bcddc5] p-3 rounded-xl text-[11px] text-stone-600 space-y-1">
-            <span className="font-bold text-[#1b4332] block">Demo Access Credentials:</span>
-            <div>Email: <code className="bg-white px-1 py-0.5 rounded text-stone-800">admin@karnamvarifarms.com</code></div>
-            <div>Password: <code className="bg-white px-1 py-0.5 rounded text-stone-800">KarnamAdmin2026!</code></div>
-          </div>
 
           <div className="text-center pt-2">
             <Link
@@ -239,6 +274,9 @@ export const AdminLayout: React.FC = () => {
 
         {/* Sidebar Footer */}
         <div className="p-4 border-t border-[#2d5a27] space-y-2">
+          {logoutError && (
+            <p role="alert" className="text-[11px] text-rose-200">{logoutError}</p>
+          )}
           <Link
             to="/"
             target="_blank"
@@ -252,11 +290,8 @@ export const AdminLayout: React.FC = () => {
           </Link>
 
           <button
-            onClick={() => {
-              logout();
-              navigate('/admin');
-            }}
-            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-900/30 rounded-xl transition-colors"
+            onClick={() => void handleAdminLogout()}
+            className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-900/30 rounded-xl transition-colors cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out Admin</span>

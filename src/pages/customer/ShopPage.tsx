@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { ProductCard } from '../../components/common/ProductCard';
+import { CatalogLoadError } from '../../components/common/CatalogLoadError';
 import { dataService } from '../../services/dataService';
 import { Product, Category } from '../../types';
 import { useAuth } from '../../context/AuthContext';
-import { Filter, SlidersHorizontal, Search, RotateCcw } from 'lucide-react';
+import { Filter, Search, RotateCcw } from 'lucide-react';
 
 export const ShopPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -13,6 +14,8 @@ export const ShopPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Filters state from URL or defaults
   const selectedCat = searchParams.get('category') || 'all';
@@ -20,37 +23,55 @@ export const ShopPage: React.FC = () => {
   const isWishlistOnly = searchParams.get('wishlist') === 'true';
 
   const [search, setSearch] = useState(searchParams.get('q') || '');
-  const [sortBy, setSortBy] = useState<'newest' | 'price-asc' | 'price-desc' | 'popular'>('popular');
-  const [inStockOnly, setInStockOnly] = useState(false);
-  const [maxPrice, setMaxPrice] = useState<number>(2000);
   const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const hasActiveFilters =
+    selectedCat !== 'all' ||
+    filterType !== '' ||
+    isWishlistOnly ||
+    search.trim() !== '';
 
   useEffect(() => {
     dataService.trackEvent('page_view', { page: 'shop' });
-    dataService.getCategories().then(setCategories);
   }, []);
 
   useEffect(() => {
+    let active = true;
     setLoading(true);
-    dataService
-      .getProducts({
+    setLoadError(null);
+
+    Promise.all([
+      dataService.getCategories(),
+      dataService.getProducts({
         categoryId: selectedCat !== 'all' ? selectedCat : undefined,
         search: search.trim() || undefined,
-        maxPrice,
-        inStock: inStockOnly,
         isBestseller: filterType === 'bestseller' ? true : undefined,
         isFeatured: filterType === 'featured' ? true : undefined,
-        sortBy,
-      })
-      .then(prods => {
+        sortBy: 'popular',
+      }),
+    ])
+      .then(([cats, prods]) => {
+        if (!active) return;
+        setCategories(cats);
         let finalProds = prods;
         if (isWishlistOnly) {
           finalProds = prods.filter(p => wishlist.includes(p.id));
         }
         setProducts(finalProds);
-        setLoading(false);
+      })
+      .catch(error => {
+        if (!active) return;
+        setCategories([]);
+        setProducts([]);
+        setLoadError(error instanceof Error ? error.message : 'Unable to load farm products.');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-  }, [selectedCat, filterType, isWishlistOnly, search, sortBy, inStockOnly, maxPrice, wishlist]);
+
+    return () => {
+      active = false;
+    };
+  }, [selectedCat, filterType, isWishlistOnly, search, wishlist, retryCount]);
 
   const handleCategorySelect = (catId: string) => {
     const next = new URLSearchParams(searchParams);
@@ -64,9 +85,6 @@ export const ShopPage: React.FC = () => {
 
   const handleResetFilters = () => {
     setSearch('');
-    setMaxPrice(2000);
-    setInStockOnly(false);
-    setSortBy('popular');
     setSearchParams({});
   };
 
@@ -75,10 +93,7 @@ export const ShopPage: React.FC = () => {
       {/* 1. Header & Title */}
       <div className="border-b border-[#f4eee2] pb-6 mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-            Pure Farm Delicacies
-          </span>
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-[#1b4332] mt-1">
+          <h1 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-[#1b4332]">
             {isWishlistOnly
               ? 'My Saved Wishlist'
               : filterType === 'bestseller'
@@ -87,14 +102,14 @@ export const ShopPage: React.FC = () => {
               ? 'Featured Harvest Specialties'
               : selectedCat !== 'all'
               ? categories.find(c => c.id === selectedCat)?.name || 'Farm Delicacies'
-              : 'Shop All Farm Products'}
+              : 'Karnam Vari Farm Products'}
           </h1>
           <p className="text-xs sm:text-sm text-stone-500 mt-1">
             Showing {products.length} authentic handcrafted farm products
           </p>
         </div>
 
-        {/* Search & Sort Controls */}
+        {/* Mobile Filters Toggle */}
         <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={() => setShowMobileFilters(!showMobileFilters)}
@@ -103,20 +118,6 @@ export const ShopPage: React.FC = () => {
             <Filter className="w-3.5 h-3.5 text-[#1b4332]" />
             <span>Filters</span>
           </button>
-
-          <div className="relative">
-            <select
-              value={sortBy}
-              onChange={e => setSortBy(e.target.value as any)}
-              className="appearance-none bg-white border border-[#ebe0cd] text-stone-700 text-xs font-medium py-2.5 pl-3.5 pr-8 rounded-xl focus:outline-hidden focus:border-[#1b4332] shadow-2xs cursor-pointer"
-            >
-              <option value="popular">Sort: Most Popular</option>
-              <option value="newest">Sort: Newest First</option>
-              <option value="price-asc">Sort: Price (Low to High)</option>
-              <option value="price-desc">Sort: Price (High to Low)</option>
-            </select>
-            <SlidersHorizontal className="absolute right-2.5 top-3 w-3.5 h-3.5 text-stone-400 pointer-events-none" />
-          </div>
         </div>
       </div>
 
@@ -145,7 +146,7 @@ export const ShopPage: React.FC = () => {
           {/* Quick Search */}
           <div className="bg-white p-4 rounded-2xl border border-[#f4eee2] shadow-2xs space-y-2">
             <label className="text-xs font-bold text-stone-800 uppercase tracking-wider block">
-              Search Catalog
+              Search Items
             </label>
             <div className="relative">
               <input
@@ -196,58 +197,21 @@ export const ShopPage: React.FC = () => {
                   }`}
                 >
                   <span>{cat.name}</span>
-                  <span className="text-[10px] opacity-75">
-                    ({cat.product_count ?? 6})
-                  </span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Price Range */}
-          <div className="bg-white p-4 rounded-2xl border border-[#f4eee2] shadow-2xs space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-stone-800 uppercase tracking-wider">
-                Price Cap (Under ₹{maxPrice})
-              </span>
-            </div>
-            <input
-              type="range"
-              min="100"
-              max="2000"
-              step="50"
-              value={maxPrice}
-              onChange={e => setMaxPrice(Number(e.target.value))}
-              className="w-full accent-[#1b4332] cursor-pointer"
-            />
-            <div className="flex justify-between text-[11px] text-stone-400">
-              <span>₹100</span>
-              <span>₹1,000</span>
-              <span>₹2,000</span>
-            </div>
-          </div>
-
-          {/* Stock Availability */}
-          <div className="bg-white p-4 rounded-2xl border border-[#f4eee2] shadow-2xs">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-stone-700">
-              <input
-                type="checkbox"
-                checked={inStockOnly}
-                onChange={e => setInStockOnly(e.target.checked)}
-                className="rounded text-[#1b4332] focus:ring-[#1b4332]"
-              />
-              <span>In Stock Only</span>
-            </label>
-          </div>
-
           {/* Reset Filters */}
-          <button
-            onClick={handleResetFilters}
-            className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Reset All Filters</span>
-          </button>
+          {hasActiveFilters && (
+            <button
+              onClick={handleResetFilters}
+              className="w-full py-2.5 px-3 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              <span>Reset All Filters</span>
+            </button>
+          )}
         </div>
 
         {/* 3. Products Grid */}
@@ -261,6 +225,11 @@ export const ShopPage: React.FC = () => {
                 />
               ))}
             </div>
+          ) : loadError ? (
+            <CatalogLoadError
+              message={loadError}
+              onRetry={() => setRetryCount(count => count + 1)}
+            />
           ) : products.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {products.map(product => (
@@ -273,16 +242,21 @@ export const ShopPage: React.FC = () => {
                 <Search className="w-8 h-8" />
               </div>
               <h3 className="font-serif font-bold text-xl text-stone-800">
-                No matching farm products found
+                {hasActiveFilters ? 'No matching farm products found' : 'No farm products available yet'}
               </h3>
               <p className="text-xs text-stone-500 max-w-sm mx-auto leading-relaxed">
-                We couldn't find any items matching your active filter criteria. Try adjusting the price cap or search keyword.
+                {hasActiveFilters
+                  ? "We couldn't find any items matching your active filter criteria. Try adjusting your search keyword."
+                  : 'The catalog is currently empty. Please check back soon for this season’s farm products.'}
               </p>
               <button
-                onClick={handleResetFilters}
+                onClick={() => {
+                  if (hasActiveFilters) handleResetFilters();
+                  else setRetryCount(count => count + 1);
+                }}
                 className="px-5 py-2.5 bg-[#1b4332] text-white text-xs font-semibold rounded-xl hover:bg-[#2d5a27] transition-colors"
               >
-                Reset Filters & View All
+                {hasActiveFilters ? 'Reset Filters & View All' : 'Refresh Catalog'}
               </button>
             </div>
           )}

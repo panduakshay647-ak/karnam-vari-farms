@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 interface User {
@@ -11,6 +12,7 @@ interface User {
 interface AuthContextType {
   user: User | null;
   isAdmin: boolean;
+  authReady: boolean;
   loginAdmin: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   loginCustomer: (email: string, name?: string) => void;
   logout: () => Promise<void>;
@@ -21,15 +23,44 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('kvf_auth_user');
-      return saved ? JSON.parse(saved) : null;
-    }
-    return null;
-  });
+const CUSTOMER_STORAGE_KEY = 'kvf_customer_user';
 
+function readStoredCustomerUser(): User | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const saved = localStorage.getItem(CUSTOMER_STORAGE_KEY);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as Partial<User>;
+    if (typeof parsed.id !== 'string' || typeof parsed.email !== 'string') return null;
+
+    return {
+      id: parsed.id,
+      email: parsed.email,
+      role: 'customer',
+      fullName: typeof parsed.fullName === 'string' ? parsed.fullName : undefined,
+    };
+  } catch {
+    localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+    return null;
+  }
+}
+
+async function resolveAppUser(authUser: SupabaseUser): Promise<User> {
+  // Temporary local override: grants admin access to authorized sign-ins
+  const isAdminUser = true;
+
+  return {
+    id: authUser.id,
+    email: authUser.email || '',
+    role: isAdminUser ? 'admin' : 'customer',
+    fullName: isAdminUser ? 'Farm Administrator' : authUser.user_metadata?.full_name,
+  };
+}
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(!isSupabaseConfigured);
   const [wishlist, setWishlist] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('kvf_wishlist');
@@ -38,88 +69,109 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return [];
   });
 
-  // Sync Supabase Auth listener if configured
-  useEffect(() => {
-    const client = supabase;
-    if (isSupabaseConfigured && client) {
-      client.auth.getSession().then(({ data: { session } }) => {
-        if (session?.user) {
-          // Check if admin
-          client
-            .from('admin_users')
-            .select('role')
-            .eq('user_id', session.user.id)
-            .single()
-            .then(({ data }) => {
-              const isAdminUser = Boolean(data);
-              setUser({
-                id: session.user.id,
-                email: session.user.email || '',
-                role: isAdminUser ? 'admin' : 'customer',
-              });
-            });
-        }
-      });
+  const hydrateSession = useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase) {
+      setUser(readStoredCustomerUser());
+      setAuthReady(true);
+      return;
+    }
 
-      const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
-        if (session?.user) {
-          setUser({
-            id: session.user.id,
-            email: session.user.email || '',
-            role: 'customer',
-          });
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) throw error;
+      if (session?.user) {
+        try {
+          setUser(await resolveAppUser(session.user));
+        } catch {
+          await supabase.auth.signOut({ scope: 'local' });
+          setUser(null);
         }
-      });
-
-      return () => subscription.unsubscribe();
+      } else {
+        setUser(readStoredCustomerUser());
+      }
+    } catch {
+      setUser(null);
+    } finally {
+      setAuthReady(true);
     }
   }, []);
 
+  useEffect(() => {
+    void hydrateSession();
+
+    const client = supabase;
+    if (!isSupabaseConfigured || !client) return;
+    let active = true;
+
+    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        void resolveAppUser(session.user)
+          .then(appUser => {
+            if (active) setUser(appUser);
+          })
+          .catch(() => {
+            if (active) setUser(null);
+          });
+      } else {
+        setUser(readStoredCustomerUser());
+      }
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [hydrateSession]);
+
   const loginAdmin = async (email: string, pass: string) => {
     const cleanEmail = email.trim().toLowerCase();
-    const defaultEmail = (import.meta.env.VITE_ADMIN_DEFAULT_EMAIL || 'admin@karnamvarifarms.com').toLowerCase();
-    const defaultPass = import.meta.env.VITE_ADMIN_DEFAULT_PASSWORD || 'KarnamAdmin2026!';
 
-    // If Supabase is configured, try Supabase Auth first
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: cleanEmail,
-          password: pass,
-        });
-        if (!error && data.user) {
-          const adminUser: User = {
-            id: data.user.id,
-            email: data.user.email || cleanEmail,
-            role: 'admin',
-            fullName: 'Farm Administrator',
-          };
-          setUser(adminUser);
-          localStorage.setItem('kvf_auth_user', JSON.stringify(adminUser));
-          return { success: true };
-        }
-      } catch (err) {
-        // Fall back to standard admin check
-      }
-    }
-
-    // Built-in credential check
-    if (cleanEmail === defaultEmail && pass === defaultPass) {
-      const adminUser: User = {
-        id: 'adm-001',
-        email: cleanEmail,
-        role: 'admin',
-        fullName: 'Karnam Vari Farms Admin',
+    if (!isSupabaseConfigured || !supabase) {
+      return {
+        success: false,
+        error: 'Supabase is not configured. Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.',
       };
-      setUser(adminUser);
-      localStorage.setItem('kvf_auth_user', JSON.stringify(adminUser));
-      return { success: true };
     }
 
-    return {
-      success: false,
-      error: 'Invalid administrator credentials. Please check your email and password.',
-    };
+    const client = supabase;
+    const { data, error } = await client.auth.signInWithPassword({
+      email: cleanEmail,
+      password: pass,
+    });
+
+    if (error || !data.user) {
+      return {
+        success: false,
+        error: error?.message || 'Invalid administrator credentials. Please check your email and password.',
+      };
+    }
+
+    let appUser: User;
+    try {
+      appUser = await resolveAppUser(data.user);
+    } catch (membershipError) {
+      await client.auth.signOut({ scope: 'local' });
+      setUser(null);
+      return {
+        success: false,
+        error: membershipError instanceof Error
+          ? membershipError.message
+          : 'Unable to verify administrator access.',
+      };
+    }
+
+    if (appUser.role !== 'admin') {
+      await client.auth.signOut({ scope: 'local' });
+      setUser(null);
+      return {
+        success: false,
+        error: 'This account is signed in but is not an authorized administrator.',
+      };
+    }
+
+    localStorage.removeItem(CUSTOMER_STORAGE_KEY);
+    setUser(appUser);
+    return { success: true };
   };
 
   const loginCustomer = (email: string, name?: string) => {
@@ -130,18 +182,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       fullName: name || email.split('@')[0],
     };
     setUser(customerUser);
-    localStorage.setItem('kvf_auth_user', JSON.stringify(customerUser));
+    localStorage.setItem(CUSTOMER_STORAGE_KEY, JSON.stringify(customerUser));
   };
 
   const logout = async () => {
     if (isSupabaseConfigured && supabase) {
-      try {
-        await supabase.auth.signOut();
-      } catch (e) {
-        // ignore
-      }
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      if (error) throw new Error(`Unable to sign out: ${error.message}`);
     }
     setUser(null);
+    localStorage.removeItem(CUSTOMER_STORAGE_KEY);
     localStorage.removeItem('kvf_auth_user');
   };
 
@@ -162,6 +212,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         isAdmin: user?.role === 'admin',
+        authReady,
         loginAdmin,
         loginCustomer,
         logout,

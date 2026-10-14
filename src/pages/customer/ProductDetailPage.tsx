@@ -5,6 +5,7 @@ import { Product, ProductVariant, Review } from '../../types';
 import { useCart } from '../../context/CartContext';
 import { useAuth } from '../../context/AuthContext';
 import { ProductCard } from '../../components/common/ProductCard';
+import { CatalogLoadError } from '../../components/common/CatalogLoadError';
 import {
   Star,
   ShoppingBag,
@@ -18,7 +19,8 @@ import {
   Info,
   Clock,
   MessageSquare,
-  X
+  X,
+  AlertCircle
 } from 'lucide-react';
 
 export const ProductDetailPage: React.FC = () => {
@@ -35,6 +37,8 @@ export const ProductDetailPage: React.FC = () => {
   const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   // Review Modal State
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -45,32 +49,61 @@ export const ProductDetailPage: React.FC = () => {
   const [reviewComment, setReviewComment] = useState('');
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!slug) return;
-    setLoading(true);
-
-    dataService.getProductBySlug(slug).then(p => {
-      setProduct(p);
-      if (p) {
-        setSelectedVariant(p.variants[0] || null);
-        setActiveImage(p.images[0]?.image_url || '');
-        setQuantity(1);
-
-        // Track view
-        dataService.trackEvent('product_view', { product_name: p.name }, p.id, p.category_id);
-
-        // Fetch related products
-        dataService
-          .getProducts({ categoryId: p.category_id })
-          .then(related => setRelatedProducts(related.filter(r => r.id !== p.id).slice(0, 4)));
-
-        // Fetch product reviews
-        dataService.getReviews(p.id, 'approved').then(setReviews);
-      }
+    let active = true;
+    if (!slug) {
       setLoading(false);
-    });
-  }, [slug]);
+      return () => {
+        active = false;
+      };
+    }
+    setLoading(true);
+    setLoadError(null);
+
+    const loadProduct = async () => {
+      try {
+        const productData = await dataService.getProductBySlug(slug);
+        if (!active) return;
+        setProduct(productData);
+        if (productData) {
+          setSelectedVariant(productData.variants[0] || null);
+          setActiveImage(productData.images[0]?.image_url || '');
+          setQuantity(1);
+
+          dataService.trackEvent('product_view', { product_name: productData.name }, productData.id, productData.category_id);
+
+          dataService
+            .getProducts({ categoryId: productData.category_id })
+            .then(related => {
+              if (active) setRelatedProducts(related.filter(item => item.id !== productData.id).slice(0, 4));
+            })
+            .catch(() => {
+              if (active) setRelatedProducts([]);
+            });
+
+          dataService.getReviews(productData.id, 'approved').then(productReviews => {
+            if (active) setReviews(productReviews);
+          }).catch(() => {
+            if (active) setReviews([]);
+          });
+        }
+      } catch (error) {
+        if (active) {
+          setProduct(null);
+          setLoadError(error instanceof Error ? error.message : 'Unable to load this farm product.');
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadProduct();
+    return () => {
+      active = false;
+    };
+  }, [slug, retryCount]);
 
   if (loading) {
     return (
@@ -82,6 +115,16 @@ export const ProductDetailPage: React.FC = () => {
   }
 
   if (!product) {
+    if (loadError) {
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-16">
+          <CatalogLoadError
+            message={loadError}
+            onRetry={() => setRetryCount(count => count + 1)}
+          />
+        </div>
+      );
+    }
     return (
       <div className="max-w-xl mx-auto px-4 py-20 text-center space-y-4">
         <h2 className="text-2xl font-serif font-bold text-stone-800">Product Not Found</h2>
@@ -119,27 +162,33 @@ export const ProductDetailPage: React.FC = () => {
     e.preventDefault();
     if (!reviewName || !reviewComment) return;
 
+    setReviewError(null);
     setReviewSubmitting(true);
-    const newRev = await dataService.submitReview({
-      product_id: product.id,
-      user_name: reviewName,
-      user_email: reviewEmail || 'guest@karnamvarifarms.com',
-      rating: reviewRating,
-      title: reviewTitle,
-      comment: reviewComment,
-      is_verified_purchase: true,
-    });
-    setReviewSubmitting(false);
-    setReviewSuccess(true);
-    setReviews(prev => [newRev, ...prev]);
+    try {
+      const newRev = await dataService.submitReview({
+        product_id: product.id,
+        user_name: reviewName,
+        user_email: reviewEmail || 'guest@karnamvarifarms.com',
+        rating: reviewRating,
+        title: reviewTitle,
+        comment: reviewComment,
+        is_verified_purchase: false,
+      });
+      setReviewSuccess(true);
+      if (newRev.status === 'approved') setReviews(prev => [newRev, ...prev]);
 
-    setTimeout(() => {
-      setIsReviewModalOpen(false);
-      setReviewSuccess(false);
-      setReviewName('');
-      setReviewTitle('');
-      setReviewComment('');
-    }, 1500);
+      setTimeout(() => {
+        setIsReviewModalOpen(false);
+        setReviewSuccess(false);
+        setReviewName('');
+        setReviewTitle('');
+        setReviewComment('');
+      }, 1500);
+    } catch (error) {
+      setReviewError(error instanceof Error ? error.message : 'Unable to submit your review.');
+    } finally {
+      setReviewSubmitting(false);
+    }
   };
 
   return (
@@ -519,10 +568,16 @@ export const ProductDetailPage: React.FC = () => {
             {reviewSuccess ? (
               <div className="py-8 text-center text-emerald-700 space-y-2">
                 <CheckCircle2 className="w-10 h-10 mx-auto" />
-                <p className="font-semibold text-sm">Thank you for your valuable feedback!</p>
+                <p className="font-semibold text-sm">Thank you. Your review was submitted for moderation.</p>
               </div>
             ) : (
               <form onSubmit={handleReviewSubmit} className="space-y-4">
+                {reviewError && (
+                  <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{reviewError}</span>
+                  </div>
+                )}
                 {/* Rating selection */}
                 <div>
                   <label className="text-xs font-semibold text-stone-700 block mb-1">

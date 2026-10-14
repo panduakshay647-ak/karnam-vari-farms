@@ -49,16 +49,24 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     toggleWishlist(product.id);
   };
 
+  const hasReviews =
+    (product.review_count ?? 0) > 0 &&
+    typeof product.rating === 'number' &&
+    product.rating > 0;
+
   return (
-    <div className="group relative bg-white rounded-2xl border border-[#f4eee2] overflow-hidden hover:shadow-xl hover:border-[#ebe0cd] transition-all duration-300 flex flex-col h-full">
+    <div className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-[#ebe0cd] bg-white transition-all duration-300 hover:-translate-y-0.5 hover:border-[#bcddc5] hover:shadow-lg">
       {/* 1. Image & Badges */}
-      <div className="relative aspect-4/3 overflow-hidden bg-[#faf7f2]">
-        <Link to={`/product/${product.slug}`} className="block w-full h-full">
+      <div className="relative aspect-[4/3] overflow-hidden bg-[#f4eee2]">
+        <Link
+          to={`/product/${product.slug}`}
+          className="block h-full w-full focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#1b4332]"
+        >
           <img
             src={primaryImage}
             alt={product.name}
             loading="lazy"
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
         </Link>
 
@@ -84,7 +92,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {/* Wishlist Button */}
         <button
           onClick={handleWishlistToggle}
-          className={`absolute top-3 right-3 p-2 rounded-full backdrop-blur-md transition-all shadow-sm ${
+          aria-label={isFavorited ? `Remove ${product.name} from wishlist` : `Save ${product.name} to wishlist`}
+          className={`absolute right-3 top-3 rounded-full p-2.5 shadow-sm backdrop-blur-md transition-all ${
             isFavorited
               ? 'bg-rose-50 text-rose-600'
               : 'bg-white/80 text-stone-600 hover:bg-white hover:text-stone-900'
@@ -105,29 +114,31 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       </div>
 
       {/* 2. Product Details */}
-      <div className="p-4 sm:p-5 flex flex-col flex-1">
+      <div className="flex flex-1 flex-col p-4 sm:p-5">
         {/* Category & Rating */}
-        <div className="flex items-center justify-between gap-2 mb-1.5 text-xs">
-          <span className="text-[#8b4513] font-medium tracking-wide uppercase text-[11px]">
+        <div className="mb-2 flex min-h-5 items-center justify-between gap-2 text-xs">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-wider text-[#8b4513] sm:text-[11px]">
             {product.category_name}
           </span>
-          <div className="flex items-center gap-1 text-amber-500 font-semibold text-xs">
-            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-            <span>{product.rating || '4.9'}</span>
-            <span className="text-stone-400 font-normal">({product.review_count || 12})</span>
-          </div>
+          {hasReviews && (
+            <div className="flex shrink-0 items-center gap-1 text-xs font-semibold text-amber-600">
+              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+              <span>{product.rating}</span>
+              <span className="font-normal text-stone-400">({product.review_count})</span>
+            </div>
+          )}
         </div>
 
         {/* Product Name */}
         <Link
           to={`/product/${product.slug}`}
-          className="font-serif font-bold text-stone-900 text-base group-hover:text-[#1b4332] line-clamp-1 transition-colors"
+          className="line-clamp-2 min-h-12 font-serif text-base font-bold leading-6 text-stone-900 transition-colors hover:text-[#1b4332] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1b4332]"
         >
           {product.name}
         </Link>
 
         {/* Short Description */}
-        <p className="text-stone-500 text-xs line-clamp-2 mt-1 leading-relaxed">
+        <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-stone-500">
           {product.short_description}
         </p>
 
@@ -151,10 +162,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         )}
 
         {/* Price & Action */}
-        <div className="mt-auto pt-4 flex items-center justify-between border-t border-[#f4eee2]">
+        <div className="mt-auto flex items-center justify-between gap-2 border-t border-[#f4eee2] pt-4">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-bold text-stone-900 font-serif">
+              <span className="font-serif text-lg font-bold text-stone-900">
                 ₹{currentPrice}
               </span>
               {originalPrice && originalPrice > currentPrice && (
@@ -171,7 +182,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           <button
             onClick={handleAddToCart}
             disabled={isOutOfStock}
-            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all ${
+            aria-label={isOutOfStock ? `${product.name} is out of stock` : `Add ${product.name} to cart`}
+            className={`inline-flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1b4332] ${
               isOutOfStock
                 ? 'bg-stone-100 text-stone-400 cursor-not-allowed'
                 : addedAnimation

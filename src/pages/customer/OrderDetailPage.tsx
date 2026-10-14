@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import { dataService } from '../../services/dataService';
 import { Order, OrderStatus } from '../../types';
 import {
@@ -17,23 +17,44 @@ import {
 
 export const OrderDetailPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
-  const [order, setOrder] = useState<Order | null>(null);
-  const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const navigationOrder = (location.state as { order?: Order } | null)?.order;
+  const initialOrder = navigationOrder?.order_id === orderId ? navigationOrder ?? null : null;
+  const [order, setOrder] = useState<Order | null>(initialOrder);
+  const [loading, setLoading] = useState(!initialOrder);
 
   useEffect(() => {
-    if (!orderId) return;
-    setLoading(true);
-
-    dataService.getOrderById(orderId).then(ord => {
-      setOrder(ord);
+    let active = true;
+    if (initialOrder) setOrder(initialOrder);
+    if (!orderId) {
+      setOrder(null);
       setLoading(false);
-    });
+      return () => {
+        active = false;
+      };
+    }
 
+    setLoading(!initialOrder);
+    const loadOrder = async () => {
+      try {
+        const orderData = await dataService.getOrderById(orderId);
+        if (active && orderData) setOrder(orderData);
+      } catch {
+        if (active && !initialOrder) setOrder(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    void loadOrder();
     const unsub = dataService.subscribe('orders', () => {
-      dataService.getOrderById(orderId).then(setOrder);
+      void loadOrder();
     });
-    return unsub;
-  }, [orderId]);
+    return () => {
+      active = false;
+      unsub();
+    };
+  }, [orderId, location.state]);
 
   if (loading) {
     return (

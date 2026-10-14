@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useLocation } from 'react-router-dom';
 import confetti from 'canvas-confetti';
 import { dataService } from '../../services/dataService';
 import { Order } from '../../types';
@@ -18,8 +18,11 @@ import {
 
 export const OrderConfirmationPage: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>();
-  const [order, setOrder] = useState<Order | null>(null);
-  const [loading, setLoading] = useState(true);
+  const location = useLocation();
+  const navigationOrder = (location.state as { order?: Order } | null)?.order;
+  const initialOrder = navigationOrder?.order_id === orderId ? navigationOrder ?? null : null;
+  const [order, setOrder] = useState<Order | null>(initialOrder);
+  const [loading, setLoading] = useState(!initialOrder);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -35,13 +38,32 @@ export const OrderConfirmationPage: React.FC = () => {
       // ignore
     }
 
-    if (orderId) {
-      dataService.getOrderById(orderId).then(ord => {
-        setOrder(ord);
-        setLoading(false);
-      });
+    let active = true;
+    if (initialOrder) setOrder(initialOrder);
+    if (!orderId) {
+      setOrder(null);
+      setLoading(false);
+      return () => {
+        active = false;
+      };
     }
-  }, [orderId]);
+
+    setLoading(!initialOrder);
+    dataService.getOrderById(orderId)
+      .then(orderData => {
+        if (active && orderData) setOrder(orderData);
+      })
+      .catch(() => {
+        if (active && !initialOrder) setOrder(null);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [orderId, location.state]);
 
   const copyOrderId = () => {
     if (order) {
@@ -115,6 +137,7 @@ export const OrderConfirmationPage: React.FC = () => {
         <div className="pt-2 flex flex-wrap items-center justify-center gap-4 text-xs">
           <Link
             to={`/order/${order.order_id}`}
+            state={{ order }}
             className="px-6 py-2.5 bg-[#1b4332] text-white font-semibold rounded-xl hover:bg-[#2d5a27] transition-colors"
           >
             Track Order Status

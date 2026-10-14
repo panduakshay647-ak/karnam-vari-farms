@@ -7,12 +7,10 @@ import { PaymentMethod, ShippingAddress } from '../../types';
 import {
   ShieldCheck,
   Truck,
-  CreditCard,
   Banknote,
   Lock,
   ArrowRight,
   AlertCircle,
-  Sparkles,
   ChevronLeft
 } from 'lucide-react';
 
@@ -64,8 +62,7 @@ export const CheckoutPage: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
 
-    // Basic validation
-    if (!fullName.trim() || !email.trim() || !phone.trim() || !addressLine.trim() || !city.trim() || !pincode.trim()) {
+    if (!fullName.trim() || !phone.trim() || !addressLine.trim() || !city.trim() || !pincode.trim()) {
       setErrorMsg('Please fill in all required shipping and contact details.');
       return;
     }
@@ -85,7 +82,7 @@ export const CheckoutPage: React.FC = () => {
     const shippingAddress: ShippingAddress = {
       full_name: fullName.trim(),
       phone: phone.trim(),
-      email: email.trim(),
+      email: email.trim() || undefined,
       address_line: addressLine.trim(),
       landmark: landmark.trim() || undefined,
       city: city.trim(),
@@ -95,7 +92,7 @@ export const CheckoutPage: React.FC = () => {
 
     const orderPayload = {
       customer_name: fullName.trim(),
-      customer_email: email.trim(),
+      customer_email: email.trim() || undefined,
       customer_phone: phone.trim(),
       shipping_address: shippingAddress,
       payment_method: paymentMethod,
@@ -111,7 +108,9 @@ export const CheckoutPage: React.FC = () => {
       const result = await dataService.placeOrder(orderPayload);
       if (result.success && result.order) {
         clearCart();
-        navigate(`/order-confirmation/${result.order.order_id}`);
+        navigate(`/order-confirmation/${result.order.order_id}`, {
+          state: { order: result.order },
+        });
       } else {
         setErrorMsg(result.error || 'Failed to place order. Please review your cart.');
         setLoading(false);
@@ -131,11 +130,8 @@ export const CheckoutPage: React.FC = () => {
         </Link>
         <div>
           <h1 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332]">
-            Secure Checkout
+            Karnam Vari Farms
           </h1>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Safe farm direct dispatch • SSL 256-bit encrypted checkout
-          </p>
         </div>
       </div>
 
@@ -176,11 +172,10 @@ export const CheckoutPage: React.FC = () => {
 
               <div>
                 <label className="text-xs font-semibold text-stone-700 block mb-1">
-                  Email Address *
+                  Email Address (Optional)
                 </label>
                 <input
                   type="email"
-                  required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="name@example.com"
@@ -299,7 +294,7 @@ export const CheckoutPage: React.FC = () => {
             </div>
           </div>
 
-          {/* 3. Payment Method */}
+          {/* 3. Payment Method (Cash on Delivery Only) */}
           <div className="bg-white p-6 rounded-3xl border border-[#ebe0cd] shadow-2xs space-y-4">
             <h3 className="font-serif font-bold text-base text-stone-900 flex items-center gap-2">
               <span className="w-6 h-6 rounded-full bg-[#1b4332] text-white text-xs flex items-center justify-center font-sans">
@@ -309,20 +304,13 @@ export const CheckoutPage: React.FC = () => {
             </h3>
 
             <div className="space-y-3">
-              {/* COD Option */}
-              <label
-                className={`p-4 rounded-2xl border flex items-start gap-3 cursor-pointer transition-all ${
-                  paymentMethod === 'cod'
-                    ? 'border-[#1b4332] bg-[#f2f7f4] ring-1 ring-[#1b4332]'
-                    : 'border-[#ebe0cd] bg-white hover:bg-[#faf7f2]'
-                }`}
-              >
+              <div className="p-4 rounded-2xl border border-[#1b4332] bg-[#f2f7f4] ring-1 ring-[#1b4332] flex items-start gap-3">
                 <input
                   type="radio"
                   name="paymentMethod"
                   value="cod"
-                  checked={paymentMethod === 'cod'}
-                  onChange={() => setPaymentMethod('cod')}
+                  checked={true}
+                  readOnly
                   className="mt-1 text-[#1b4332] focus:ring-[#1b4332]"
                 />
                 <div className="flex-1 space-y-1">
@@ -331,37 +319,10 @@ export const CheckoutPage: React.FC = () => {
                     <span>Cash on Delivery (Pay at Doorstep)</span>
                   </div>
                   <p className="text-[11px] text-stone-500 leading-relaxed">
-                    Pay securely in cash or UPI QR scan when our delivery courier reaches your address.
+                    Pay securely in cash when our delivery courier reaches your address.
                   </p>
                 </div>
-              </label>
-
-              {/* Simulated Online Payment */}
-              <label
-                className={`p-4 rounded-2xl border flex items-start gap-3 cursor-pointer transition-all ${
-                  paymentMethod === 'simulated_online'
-                    ? 'border-[#1b4332] bg-[#f2f7f4] ring-1 ring-[#1b4332]'
-                    : 'border-[#ebe0cd] bg-white hover:bg-[#faf7f2]'
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="paymentMethod"
-                  value="simulated_online"
-                  checked={paymentMethod === 'simulated_online'}
-                  onChange={() => setPaymentMethod('simulated_online')}
-                  className="mt-1 text-[#1b4332] focus:ring-[#1b4332]"
-                />
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center gap-2 font-bold text-xs text-stone-900">
-                    <CreditCard className="w-4 h-4 text-[#c58940]" />
-                    <span>Simulated Online Payment / UPI (Demo Mode)</span>
-                  </div>
-                  <p className="text-[11px] text-stone-500 leading-relaxed">
-                    Tests instant digital confirmation without real credit charges. Architecture is production-ready for Razorpay/Cashfree.
-                  </p>
-                </div>
-              </label>
+              </div>
             </div>
           </div>
         </div>
@@ -405,7 +366,7 @@ export const CheckoutPage: React.FC = () => {
               {discountAmount > 0 && (
                 <div className="flex justify-between text-emerald-700 font-medium">
                   <span>Coupon ({appliedCoupon?.code})</span>
-                  <span>- ₹{discountAmount}</span>
+                  <span>-₹{discountAmount}</span>
                 </div>
               )}
 
@@ -434,10 +395,10 @@ export const CheckoutPage: React.FC = () => {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-4 px-6 bg-[#1b4332] hover:bg-[#2d5a27] disabled:bg-stone-300 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group"
+              className="w-full py-4 px-6 bg-[#1b4332] hover:bg-[#2d5a27] disabled:bg-stone-300 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 group cursor-pointer"
             >
               {loading ? (
-                <span>Generating Order AKFARMS...</span>
+                <span>Placing Order...</span>
               ) : (
                 <>
                   <Lock className="w-4 h-4" />
@@ -446,10 +407,6 @@ export const CheckoutPage: React.FC = () => {
                 </>
               )}
             </button>
-
-            <div className="text-[11px] text-stone-400 text-center leading-relaxed">
-              By clicking Place Order, your order ID (AKFARMS0000X) will be generated and validated on the backend.
-            </div>
           </div>
         </div>
       </form>

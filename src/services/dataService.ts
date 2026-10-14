@@ -109,12 +109,71 @@ function initLocalStorage() {
 
 initLocalStorage();
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (id?: string) => Boolean(id && UUID_RE.test(id));
+const GUEST_ORDERS_KEY = 'kvf_guest_orders_v1';
+
+function num(value: unknown, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+function requireSupabaseClient() {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is configured but the client is unavailable.');
+  }
+  return supabase;
+}
+
+function mapProduct(p: any): Product {
+  return {
+    ...p,
+    base_price: num(p.base_price),
+    original_price: p.original_price != null ? num(p.original_price) : undefined,
+    discount_percentage: num(p.discount_percentage),
+    stock_quantity: num(p.stock_quantity),
+    category_name: p.categories?.name || p.category_name,
+    variants: (p.product_variants || p.variants || []).map((v: any) => ({
+      ...v,
+      price: num(v.price),
+      original_price: v.original_price != null ? num(v.original_price) : undefined,
+      stock_quantity: num(v.stock_quantity),
+    })),
+    images: p.product_images || p.images || [],
+  };
+}
+
+function mapOrder(o: any): Order {
+  return {
+    ...o,
+    subtotal: num(o.subtotal),
+    discount_amount: num(o.discount_amount),
+    delivery_charge: num(o.delivery_charge),
+    final_total: num(o.final_total),
+    items: (o.order_items || o.items || []).map((i: any) => ({
+      ...i,
+      unit_price: num(i.unit_price),
+      quantity: num(i.quantity),
+      total_price: num(i.total_price),
+    })),
+    status_history: o.order_status_history || o.status_history || [],
+  };
+}
+
 // ============================================================================
 // DATA SERVICE IMPLEMENTATION
 // ============================================================================
 
 export const dataService = {
-  // ---------------- Realtime Listener ----------------
+  // ---------------- Realtime Listener (Crash-free) ----------------
   subscribe(table: string, onUpdate: () => void) {
     const handleCustomEvent = (e: any) => {
       if (!table || e.detail?.table === table || e.detail?.table === '*') {
@@ -132,33 +191,23 @@ export const dataService = {
 
     broadcastChannel?.addEventListener('message', handleBroadcast);
 
-    // Also connect to Supabase Realtime if live configured
-    let supabaseSub: any = null;
-    if (isSupabaseConfigured && supabase) {
-      supabaseSub = supabase
-        .channel(`realtime_${table}`)
-        .on('postgres_changes', { event: '*', schema: 'public', table }, () => {
-          onUpdate();
-        })
-        .subscribe();
-    }
-
     return () => {
       window.removeEventListener('kvf_db_change', handleCustomEvent);
       broadcastChannel?.removeEventListener('message', handleBroadcast);
-      if (supabaseSub && supabase) {
-        supabase.removeChannel(supabaseSub);
-      }
     };
   },
 
   // ---------------- Categories ----------------
   async getCategories(includeInactive = false): Promise<Category[]> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured) {
+      if (!supabase) {
+        throw new Error('Supabase is configured, but its client could not be initialized.');
+      }
       let query = supabase.from('categories').select('*').order('display_order', { ascending: true });
       if (!includeInactive) query = query.eq('is_active', true);
       const { data, error } = await query;
-      if (!error && data) return data as Category[];
+      if (error) throw new Error(`Unable to load categories from Supabase: ${error.message}`);
+      return (data || []) as Category[];
     }
 
     const categories: Category[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]');
@@ -179,20 +228,39 @@ export const dataService = {
   },
 
   async saveCategory(cat: Partial<Category>): Promise<Category> {
-    if (isSupabaseConfigured && supabase) {
-      if (cat.id && !cat.id.startsWith('cat-')) {
-        const { data } = await supabase.from('categories').update(cat).eq('id', cat.id).select().single();
-        if (data) {
-          notifyListeners('categories');
-          return data as Category;
-        }
-      } else {
-        const { data } = await supabase.from('categories').insert(cat).select().single();
-        if (data) {
-          notifyListeners('categories');
-          return data as Category;
-        }
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const name = cat.name?.trim() || '';
+      const categoryData = {
+        name,
+        slug: cat.slug?.trim() || slugify(name),
+        description: cat.description ?? '',
+        image_url: cat.image_url ?? '',
+        display_order: Number(cat.display_order ?? 0),
+        is_active: cat.is_active ?? true,
+      };
+
+      if (!categoryData.name || !categoryData.slug) {
+        throw new Error('Category name and slug are required.');
       }
+
+      if (cat.id) {
+        if (!isUuid(cat.id)) throw new Error('Cannot update a category with a non-database ID.');
+        const { data, error } = await client
+          .from('categories')
+          .update(categoryData)
+          .eq('id', cat.id)
+          .select()
+          .single();
+        if (error) throw new Error(`Unable to update category in Supabase: ${error.message}`);
+        notifyListeners('categories');
+        return data as Category;
+      }
+
+      const { data, error } = await client.from('categories').insert(categoryData).select().single();
+      if (error) throw new Error(`Unable to create category in Supabase: ${error.message}`);
+      notifyListeners('categories');
+      return data as Category;
     }
 
     const categories: Category[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]');
@@ -236,6 +304,39 @@ export const dataService = {
   },
 
   async deleteCategory(id: string): Promise<{ success: boolean; error?: string }> {
+    if (isSupabaseConfigured) {
+      try {
+        const client = requireSupabaseClient();
+        const { count, error: countError } = await client
+          .from('products')
+          .select('id', { count: 'exact', head: true })
+          .eq('category_id', id);
+        if (countError) throw countError;
+        if ((count || 0) > 0) {
+          return {
+            success: false,
+            error: `Cannot delete category: ${count} products are still assigned to it. Reassign or archive them first.`,
+          };
+        }
+
+        const { data, error } = await client
+          .from('categories')
+          .delete()
+          .eq('id', id)
+          .select('id')
+          .maybeSingle();
+        if (error) throw error;
+        if (!data) return { success: false, error: 'Category was not found in Supabase.' };
+        notifyListeners('categories');
+        return { success: true };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Unable to delete category from Supabase.',
+        };
+      }
+    }
+
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const attachedCount = products.filter(p => p.category_id === id && !p.is_archived).length;
     if (attachedCount > 0) {
@@ -243,11 +344,6 @@ export const dataService = {
         success: false,
         error: `Cannot delete category: ${attachedCount} active products are currently assigned to it. Reassign or archive them first.`,
       };
-    }
-
-    if (isSupabaseConfigured && supabase) {
-      const { error } = await supabase.from('categories').delete().eq('id', id);
-      if (error) return { success: false, error: error.message };
     }
 
     const categories: Category[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]');
@@ -269,7 +365,10 @@ export const dataService = {
     sortBy?: 'price-asc' | 'price-desc' | 'newest' | 'popular';
     includeArchived?: boolean;
   }): Promise<Product[]> {
-    if (isSupabaseConfigured && supabase) {
+    if (isSupabaseConfigured) {
+      if (!supabase) {
+        throw new Error('Supabase is configured, but its client could not be initialized.');
+      }
       let query = supabase.from('products').select(`
         *,
         categories(name),
@@ -278,15 +377,39 @@ export const dataService = {
       `);
       if (!params?.includeArchived) query = query.eq('is_archived', false).eq('is_active', true);
       if (params?.categoryId) query = query.eq('category_id', params.categoryId);
-      const { data, error } = await query;
-      if (!error && data) {
-        return data.map((p: any) => ({
-          ...p,
-          category_name: p.categories?.name,
-          variants: p.product_variants || [],
-          images: p.product_images || [],
-        })) as Product[];
+      if (params?.isFeatured) query = query.eq('is_featured', true);
+      if (params?.isBestseller) query = query.eq('is_bestseller', true);
+      if (params?.inStock) query = query.gt('stock_quantity', 0);
+      if (params?.minPrice !== undefined) query = query.gte('base_price', params.minPrice);
+      if (params?.maxPrice !== undefined) query = query.lte('base_price', params.maxPrice);
+      if (params?.search?.trim()) {
+        const searchTerm = params.search.trim().replace(/[^a-zA-Z0-9\s-]/g, ' ').replace(/\s+/g, ' ');
+        if (searchTerm) {
+          query = query.or([
+            `name.ilike.%${searchTerm}%`,
+            `short_description.ilike.%${searchTerm}%`,
+            `sku.ilike.%${searchTerm}%`,
+            `ingredients.ilike.%${searchTerm}%`,
+          ].join(','));
+        }
       }
+      if (params?.sortBy === 'price-asc') query = query.order('base_price', { ascending: true });
+      if (params?.sortBy === 'price-desc') query = query.order('base_price', { ascending: false });
+      if (params?.sortBy === 'newest') query = query.order('created_at', { ascending: false });
+      if (params?.sortBy === 'popular') {
+        query = query
+          .order('is_bestseller', { ascending: false })
+          .order('is_featured', { ascending: false })
+          .order('created_at', { ascending: false });
+      }
+      const { data, error } = await query;
+      if (error) throw new Error(`Unable to load products from Supabase: ${error.message}`);
+      return (data || []).map((product: any) => mapProduct({
+        ...product,
+        category_name: product.categories?.name,
+        product_variants: product.product_variants || [],
+        product_images: product.product_images || [],
+      }));
     }
 
     let products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
@@ -366,6 +489,141 @@ export const dataService = {
   },
 
   async saveProduct(prod: Partial<Product>): Promise<Product> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const productName = prod.name?.trim() || '';
+      const productSku = prod.sku?.trim() || '';
+      const productWeight = prod.weight_or_size?.trim() || '';
+      const variants = prod.variants || [];
+      const images = prod.images || [];
+
+      if (!productName || !productSku || !productWeight) {
+        throw new Error('Product name, SKU, and size are required.');
+      }
+      if (variants.length === 0) {
+        throw new Error('A product must have at least one variant.');
+      }
+      if (prod.id && !isUuid(prod.id)) {
+        throw new Error('Cannot edit a product with a non-database ID.');
+      }
+
+      let existingSlug: string | undefined;
+      let existingVariantIds = new Set<string>();
+      let existingImageIds = new Set<string>();
+      if (prod.id) {
+        const [{ data: existingProduct, error: productReadError }, { data: existingVariants, error: variantReadError }, { data: existingImages, error: imageReadError }] = await Promise.all([
+          client.from('products').select('slug').eq('id', prod.id).single(),
+          client.from('product_variants').select('id').eq('product_id', prod.id),
+          client.from('product_images').select('id').eq('product_id', prod.id),
+        ]);
+        if (productReadError) throw new Error(`Unable to read product before editing: ${productReadError.message}`);
+        if (variantReadError) throw new Error(`Unable to read product variants: ${variantReadError.message}`);
+        if (imageReadError) throw new Error(`Unable to read product images: ${imageReadError.message}`);
+        existingSlug = existingProduct.slug;
+        existingVariantIds = new Set((existingVariants || []).map(row => row.id));
+        existingImageIds = new Set((existingImages || []).map(row => row.id));
+      }
+
+      const productData = {
+        name: productName,
+        slug: prod.slug?.trim() || existingSlug || slugify(productName),
+        category_id: prod.category_id || null,
+        short_description: prod.short_description ?? '',
+        full_description: prod.full_description ?? '',
+        sku: productSku,
+        base_price: Number(prod.base_price ?? 0),
+        original_price: prod.original_price ?? null,
+        discount_percentage: Number(prod.discount_percentage ?? 0),
+        stock_quantity: Math.max(0, Math.trunc(Number(prod.stock_quantity ?? 0))),
+        weight_or_size: productWeight,
+        ingredients: prod.ingredients ?? null,
+        storage_instructions: prod.storage_instructions ?? null,
+        shelf_life: prod.shelf_life ?? null,
+        is_featured: prod.is_featured ?? false,
+        is_bestseller: prod.is_bestseller ?? false,
+        is_active: prod.is_active ?? true,
+        is_archived: prod.is_archived ?? false,
+      };
+
+      const productResult = prod.id
+        ? await client.from('products').update(productData).eq('id', prod.id).select('id').single()
+        : await client.from('products').insert(productData).select('id').single();
+      if (productResult.error) {
+        throw new Error(`Unable to save product in Supabase: ${productResult.error.message}`);
+      }
+      const productId = productResult.data.id;
+
+      try {
+        const submittedVariantIds = new Set(variants.filter(variant => isUuid(variant.id)).map(variant => variant.id));
+        const submittedImageIds = new Set(images.filter(image => isUuid(image.id)).map(image => image.id));
+        if ([...submittedVariantIds].some(id => !existingVariantIds.has(id))) {
+          throw new Error('A submitted variant does not belong to this product.');
+        }
+        if ([...submittedImageIds].some(id => !existingImageIds.has(id))) {
+          throw new Error('A submitted image does not belong to this product.');
+        }
+
+        const variantRows = variants.map((variant, index) => ({
+          ...(isUuid(variant.id) ? { id: variant.id } : {}),
+          product_id: productId,
+          title: variant.title,
+          weight_or_size: variant.weight_or_size,
+          sku: variant.sku,
+          price: Number(variant.price),
+          original_price: variant.original_price ?? null,
+          stock_quantity: Math.max(0, Math.trunc(Number(variant.stock_quantity))),
+          is_active: variant.is_active ?? true,
+          display_order: Number(variant.display_order ?? index),
+        }));
+        const { error: variantWriteError } = await client
+          .from('product_variants')
+          .upsert(variantRows, { onConflict: 'id' });
+        if (variantWriteError) throw new Error(`Unable to save variants: ${variantWriteError.message}`);
+
+        const removedVariantIds = [...existingVariantIds].filter(id => !submittedVariantIds.has(id));
+        if (removedVariantIds.length > 0) {
+          const { error } = await client
+            .from('product_variants')
+            .update({ is_active: false, stock_quantity: 0 })
+            .eq('product_id', productId)
+            .in('id', removedVariantIds);
+          if (error) throw new Error(`Unable to deactivate removed variants: ${error.message}`);
+        }
+
+        const imageRows = images.map((image, index) => ({
+          ...(isUuid(image.id) ? { id: image.id } : {}),
+          product_id: productId,
+          image_url: image.image_url,
+          is_primary: image.is_primary ?? index === 0,
+          display_order: Number(image.display_order ?? index + 1),
+        }));
+        if (imageRows.length > 0) {
+          const { error: imageWriteError } = await client
+            .from('product_images')
+            .upsert(imageRows, { onConflict: 'id' });
+          if (imageWriteError) throw new Error(`Unable to save product images: ${imageWriteError.message}`);
+        }
+
+        const removedImageIds = [...existingImageIds].filter(id => !submittedImageIds.has(id));
+        if (removedImageIds.length > 0) {
+          const { error } = await client
+            .from('product_images')
+            .delete()
+            .eq('product_id', productId)
+            .in('id', removedImageIds);
+          if (error) throw new Error(`Unable to remove product images: ${error.message}`);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+        throw new Error(`Product ${prod.id ? 'was updated' : 'was created'}, but its variants or images were not fully saved: ${message}`);
+      }
+
+      notifyListeners('products');
+      const saved = await this.getProductById(productId);
+      if (!saved) throw new Error('Product was saved, but could not be reloaded from Supabase.');
+      return saved;
+    }
+
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const categories: Category[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.CATEGORIES) || '[]');
     const category = categories.find(c => c.id === prod.category_id);
@@ -462,10 +720,24 @@ export const dataService = {
   },
 
   async deleteProduct(id: string): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (!isUuid(id)) throw new Error('Cannot archive a product with a non-database ID.');
+      const { data, error } = await client
+        .from('products')
+        .update({ is_archived: true, is_active: false })
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(`Unable to archive product in Supabase: ${error.message}`);
+      if (!data) return false;
+      notifyListeners('products');
+      return true;
+    }
+
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const idx = products.findIndex(p => p.id === id);
     if (idx >= 0) {
-      // Soft-delete (archive) to preserve order history integrity
       products[idx].is_archived = true;
       products[idx].is_active = false;
       localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
@@ -475,7 +747,72 @@ export const dataService = {
     return false;
   },
 
+  async restoreProduct(id: string): Promise<boolean> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (!isUuid(id)) throw new Error('Cannot restore a product with a non-database ID.');
+      const { data, error } = await client
+        .from('products')
+        .update({ is_archived: false, is_active: true })
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(`Unable to restore product in Supabase: ${error.message}`);
+      if (!data) return false;
+      notifyListeners('products');
+      return true;
+    }
+
+    const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
+    const product = products.find(item => item.id === id);
+    if (!product) return false;
+    product.is_archived = false;
+    product.is_active = true;
+    localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+    notifyListeners('products');
+    return true;
+  },
+
+  async getInventoryLogs(limit = 15): Promise<InventoryLog[]> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const { data, error } = await client
+        .from('inventory_logs')
+        .select('*, products(name), product_variants(title)')
+        .order('created_at', { ascending: false })
+        .limit(limit);
+      if (error) throw new Error(`Unable to load inventory history from Supabase: ${error.message}`);
+      return (data || []).map((row: any) => ({
+        ...row,
+        product_name: row.products?.name || 'Product',
+        variant_title: row.product_variants?.title || undefined,
+      })) as InventoryLog[];
+    }
+
+    const logs: InventoryLog[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.INVENTORY_LOGS) || '[]');
+    return logs.slice(0, Math.max(0, limit));
+  },
+
   async updateVariantStock(productId: string, variantId: string, newStock: number, reason: string): Promise<void> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (!isUuid(productId) || !isUuid(variantId)) {
+        throw new Error('Inventory adjustments require database product and variant IDs.');
+      }
+      const stock = Number(newStock);
+      if (!Number.isFinite(stock)) throw new Error('Stock quantity must be a valid number.');
+      const { error } = await client.rpc('adjust_variant_stock', {
+        p_product_id: productId,
+        p_variant_id: variantId,
+        p_new_stock: Math.max(0, Math.trunc(stock)),
+        p_reason: reason.trim() || 'Manual inventory adjustment',
+      });
+      if (error) throw new Error(`Unable to adjust inventory in Supabase: ${error.message}`);
+      notifyListeners('products');
+      notifyListeners('inventory');
+      return;
+    }
+
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const prod = products.find(p => p.id === productId);
     if (!prod) return;
@@ -487,12 +824,10 @@ export const dataService = {
     const diff = newStock - previousStock;
     variant.stock_quantity = Math.max(0, newStock);
 
-    // Update overall product stock as sum of active variants
     prod.stock_quantity = prod.variants.reduce((sum, v) => sum + (v.stock_quantity || 0), 0);
 
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
 
-    // Record inventory adjustment log
     const logs: InventoryLog[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.INVENTORY_LOGS) || '[]');
     logs.unshift({
       id: 'log-' + Math.random().toString(36).substring(2, 9),
@@ -624,20 +959,56 @@ export const dataService = {
 
   async placeOrder(params: {
     customer_name: string;
-    customer_email: string;
+    customer_email?: string;
     customer_phone: string;
     shipping_address: ShippingAddress;
     payment_method: PaymentMethod;
     items: { product_id: string; variant_id: string; quantity: number }[];
     coupon_code?: string;
   }): Promise<{ success: boolean; order?: Order; error?: string }> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (params.items.length === 0) return { success: false, error: 'Cart is empty.' };
+      const invalidItem = params.items.find(item =>
+        !isUuid(item.product_id) ||
+        !isUuid(item.variant_id) ||
+        !Number.isInteger(item.quantity) ||
+        item.quantity <= 0
+      );
+      if (invalidItem) {
+        return {
+          success: false,
+          error: 'Your cart contains an invalid or outdated product. Refresh the catalog and add the item again.',
+        };
+      }
+
+      const { data, error } = await client.rpc('place_order_atomic', {
+        p_customer_name: params.customer_name,
+        p_customer_email: params.customer_email || null,
+        p_customer_phone: params.customer_phone,
+        p_shipping_address: params.shipping_address,
+        p_payment_method: params.payment_method,
+        p_items: params.items,
+        p_coupon_code: params.coupon_code || null,
+      });
+      if (error) return { success: false, error: `Unable to place order: ${error.message}` };
+
+      const rpcResult = data as any;
+      if (!rpcResult?.success || !rpcResult.order_id) {
+        return { success: false, error: 'The order service returned an invalid confirmation.' };
+      }
+
+      const order = mapOrder(rpcResult);
+      notifyListeners('orders');
+      return { success: true, order };
+    }
+
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const settings: StoreSettings = JSON.parse(localStorage.getItem(STORAGE_KEYS.SETTINGS) || JSON.stringify(INITIAL_STORE_SETTINGS));
 
     let calculatedSubtotal = 0;
     const orderItems: any[] = [];
 
-    // 1. Validate items and inventory
     for (const item of params.items) {
       const product = products.find(p => p.id === item.product_id);
       if (!product || !product.is_active || product.is_archived) {
@@ -677,14 +1048,12 @@ export const dataService = {
       });
     }
 
-    // 2. Validate Coupon
     let discountAmount = 0;
     if (params.coupon_code) {
       const validation = await this.validateCoupon(params.coupon_code, calculatedSubtotal);
       if (validation.isValid) {
         discountAmount = validation.discountAmount;
 
-        // Increment coupon count
         const coupons: Coupon[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.COUPONS) || '[]');
         const coupIdx = coupons.findIndex(c => c.code.toUpperCase() === params.coupon_code!.toUpperCase());
         if (coupIdx >= 0) {
@@ -695,22 +1064,17 @@ export const dataService = {
       }
     }
 
-    // 3. Delivery charges (Free shipping over threshold)
     const discountedSubtotal = calculatedSubtotal - discountAmount;
     const deliveryCharge = discountedSubtotal >= settings.free_shipping_threshold ? 0 : settings.shipping_standard_fee;
     const finalTotal = Math.round((discountedSubtotal + deliveryCharge) * 100) / 100;
 
-    // 4. Generate sequential Order ID: AKFARMS00004...
     const orderIdCode = await this.getNextOrderId();
     const orderUuid = 'ord-uuid-' + Math.random().toString(36).substring(2, 11);
 
-    // Link items
     orderItems.forEach(i => (i.order_id = orderUuid));
 
-    // 5. Decrement inventory
     for (const item of params.items) {
       await this.updateVariantStock(item.product_id, item.variant_id, 0, `Order placed: ${orderIdCode}`);
-      // Actually reduce by exact quantity
       const p = products.find(pr => pr.id === item.product_id);
       const v = p?.variants.find(vr => vr.id === item.variant_id);
       if (v) {
@@ -720,12 +1084,11 @@ export const dataService = {
     }
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
 
-    // 6. Create Order record
     const newOrder: Order = {
       id: orderUuid,
       order_id: orderIdCode,
       customer_name: params.customer_name,
-      customer_email: params.customer_email,
+      customer_email: params.customer_email || '',
       customer_phone: params.customer_phone,
       shipping_address: params.shipping_address,
       subtotal: calculatedSubtotal,
@@ -757,7 +1120,6 @@ export const dataService = {
     orders.unshift(newOrder);
     localStorage.setItem(STORAGE_KEYS.ORDERS, JSON.stringify(orders));
 
-    // 7. Track analytics event
     this.trackEvent('order_placed', {
       order_id: orderIdCode,
       revenue: finalTotal,
@@ -774,27 +1136,22 @@ export const dataService = {
   },
 
   async getOrders(filters?: { status?: OrderStatus; search?: string; customerEmail?: string }): Promise<Order[]> {
-    if (isSupabaseConfigured && supabase) {
-      let query = supabase.from('orders').select(`
+    let orders: Order[];
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      let query = client.from('orders').select(`
         *,
         order_items(*),
         order_status_history(*)
       `).order('created_at', { ascending: false });
-
       if (filters?.status) query = query.eq('order_status', filters.status);
       if (filters?.customerEmail) query = query.eq('customer_email', filters.customerEmail);
-
-      const { data } = await query;
-      if (data) {
-        return data.map((o: any) => ({
-          ...o,
-          items: o.order_items || [],
-          status_history: o.order_status_history || [],
-        })) as Order[];
-      }
+      const { data, error } = await query;
+      if (error) throw new Error(`Unable to load orders from Supabase: ${error.message}`);
+      orders = (data || []).map(mapOrder);
+    } else {
+      orders = JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDERS) || '[]');
     }
-
-    let orders: Order[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDERS) || '[]');
 
     if (filters?.status) {
       orders = orders.filter(o => o.order_status === filters.status);
@@ -818,6 +1175,18 @@ export const dataService = {
   },
 
   async getOrderById(orderIdOrUuid: string): Promise<Order | null> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const lookupField = isUuid(orderIdOrUuid) ? 'id' : 'order_id';
+      const { data, error } = await client
+        .from('orders')
+        .select('*, order_items(*), order_status_history(*)')
+        .eq(lookupField, orderIdOrUuid.trim())
+        .maybeSingle();
+      if (error) throw new Error(`Unable to load order from Supabase: ${error.message}`);
+      return data ? mapOrder(data) : null;
+    }
+
     const orders = await this.getOrders();
     const query = orderIdOrUuid.trim().toUpperCase();
     return (
@@ -833,6 +1202,48 @@ export const dataService = {
     trackingNumber?: string,
     trackingUrl?: string
   ): Promise<Order> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const lookupField = isUuid(orderId) ? 'id' : 'order_id';
+      const { data: existingOrder, error: readError } = await client
+        .from('orders')
+        .select('id, payment_method')
+        .eq(lookupField, orderId)
+        .maybeSingle();
+      if (readError) throw new Error(`Unable to find order in Supabase: ${readError.message}`);
+      if (!existingOrder) throw new Error(`Order ${orderId} not found.`);
+
+      const updates: Record<string, unknown> = { order_status: newStatus };
+      if (notes !== undefined) updates.admin_notes = notes;
+      if (courierName !== undefined) updates.courier_name = courierName;
+      if (trackingNumber !== undefined) updates.tracking_number = trackingNumber;
+      if (trackingUrl !== undefined) updates.tracking_url = trackingUrl;
+      if (newStatus === 'delivered' && existingOrder.payment_method === 'cod') {
+        updates.payment_status = 'completed';
+      }
+
+      const { error: updateError } = await client
+        .from('orders')
+        .update(updates)
+        .eq('id', existingOrder.id);
+      if (updateError) throw new Error(`Unable to update order in Supabase: ${updateError.message}`);
+
+      const { error: historyError } = await client.from('order_status_history').insert({
+        order_id: existingOrder.id,
+        status: newStatus,
+        note: notes || `Status updated to ${newStatus.replace(/_/g, ' ')}`,
+        updated_by: 'Admin',
+      });
+      if (historyError) {
+        throw new Error(`Order status was updated, but its history entry failed: ${historyError.message}`);
+      }
+
+      notifyListeners('orders');
+      const updatedOrder = await this.getOrderById(existingOrder.id);
+      if (!updatedOrder) throw new Error('Order was updated, but could not be reloaded from Supabase.');
+      return updatedOrder;
+    }
+
     const orders: Order[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.ORDERS) || '[]');
     const idx = orders.findIndex(o => o.id === orderId || o.order_id === orderId);
 
@@ -873,7 +1284,7 @@ export const dataService = {
     const map = new Map<string, Customer>();
 
     orders.forEach(o => {
-      const email = o.customer_email.toLowerCase();
+      const email = (o.customer_email || 'guest@customer.com').toLowerCase();
       if (!map.has(email)) {
         map.set(email, {
           email,
@@ -901,6 +1312,16 @@ export const dataService = {
 
   // ---------------- Reviews ----------------
   async getReviews(productId?: string, status: 'approved' | 'all' = 'approved'): Promise<Review[]> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      let query = client.from('reviews').select('*').order('created_at', { ascending: false });
+      if (productId) query = query.eq('product_id', productId);
+      if (status !== 'all') query = query.eq('status', 'approved');
+      const { data, error } = await query;
+      if (error) throw new Error(`Unable to load reviews from Supabase: ${error.message}`);
+      return (data || []) as Review[];
+    }
+
     let reviews: Review[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEWS) || '[]');
     if (productId) {
       reviews = reviews.filter(r => r.product_id === productId);
@@ -912,17 +1333,38 @@ export const dataService = {
   },
 
   async submitReview(review: Omit<Review, 'id' | 'created_at' | 'status'>): Promise<Review> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      const { data, error } = await client
+        .from('reviews')
+        .insert({
+          product_id: review.product_id,
+          user_name: review.user_name.trim(),
+          user_email: review.user_email.trim().toLowerCase(),
+          rating: review.rating,
+          title: review.title?.trim() || null,
+          comment: review.comment.trim(),
+          is_verified_purchase: false,
+          status: 'pending',
+        })
+        .select()
+        .single();
+      if (error) throw new Error(`Unable to submit review: ${error.message}`);
+      notifyListeners('reviews');
+      return data as Review;
+    }
+
     const reviews: Review[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEWS) || '[]');
     const newRev: Review = {
       ...review,
       id: 'rev-' + Math.random().toString(36).substring(2, 9),
-      status: 'approved', // Auto approve demo reviews
+      is_verified_purchase: false,
+      status: 'pending',
       created_at: new Date().toISOString(),
     };
     reviews.unshift(newRev);
     localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(reviews));
 
-    // Update product rating and count
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
     const prod = products.find(p => p.id === review.product_id);
     if (prod) {
@@ -939,6 +1381,21 @@ export const dataService = {
   },
 
   async updateReviewStatus(id: string, status: 'approved' | 'rejected'): Promise<void> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (!isUuid(id)) throw new Error('Cannot moderate a review with a non-database ID.');
+      const { data, error } = await client
+        .from('reviews')
+        .update({ status })
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(`Unable to update review status: ${error.message}`);
+      if (!data) throw new Error('Review was not found or you are not authorized to moderate it.');
+      notifyListeners('reviews');
+      return;
+    }
+
     const reviews: Review[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEWS) || '[]');
     const r = reviews.find(rev => rev.id === id);
     if (r) {
@@ -949,6 +1406,21 @@ export const dataService = {
   },
 
   async deleteReview(id: string): Promise<void> {
+    if (isSupabaseConfigured) {
+      const client = requireSupabaseClient();
+      if (!isUuid(id)) throw new Error('Cannot delete a review with a non-database ID.');
+      const { data, error } = await client
+        .from('reviews')
+        .delete()
+        .eq('id', id)
+        .select('id')
+        .maybeSingle();
+      if (error) throw new Error(`Unable to delete review: ${error.message}`);
+      if (!data) throw new Error('Review was not found or you are not authorized to delete it.');
+      notifyListeners('reviews');
+      return;
+    }
+
     const reviews: Review[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.REVIEWS) || '[]');
     const filtered = reviews.filter(r => r.id !== id);
     localStorage.setItem(STORAGE_KEYS.REVIEWS, JSON.stringify(filtered));
@@ -977,7 +1449,6 @@ export const dataService = {
       created_at: new Date().toISOString(),
     });
 
-    // Keep last 2000 events to prevent memory bloat
     if (events.length > 2000) events.splice(0, events.length - 2000);
     localStorage.setItem(STORAGE_KEYS.ANALYTICS_EVENTS, JSON.stringify(events));
   },
@@ -1019,16 +1490,13 @@ export const dataService = {
       prevStartDate.setDate(prevStartDate.getDate() - days);
     }
 
-    // Filter orders in current and previous periods
     const currentOrders = orders.filter(o => new Date(o.created_at) >= startDate && o.order_status !== 'cancelled');
     const prevOrders = orders.filter(
       o => new Date(o.created_at) >= prevStartDate && new Date(o.created_at) < prevEndDate && o.order_status !== 'cancelled'
     );
 
-    // Filter events
     const currentEvents = events.filter(e => new Date(e.created_at) >= startDate);
 
-    // KPIs
     const totalRevenue = currentOrders.reduce((sum, o) => sum + o.final_total, 0);
     const prevRevenue = prevOrders.reduce((sum, o) => sum + o.final_total, 0);
 
@@ -1046,9 +1514,8 @@ export const dataService = {
 
     const averageOrderValue = totalOrdersCount > 0 ? Math.round(totalRevenue / totalOrdersCount) : 0;
 
-    // Visitors & Funnel
     const sessionIds = new Set(currentEvents.map(e => e.session_id));
-    const totalVisitors = Math.max(sessionIds.size, totalOrdersCount * 3 + 12); // Realistic visitor multiplier
+    const totalVisitors = Math.max(sessionIds.size, totalOrdersCount * 3 + 12);
     const uniqueVisitors = Math.round(totalVisitors * 0.78);
     const productViews = currentEvents.filter(e => e.event_type === 'product_view').length || totalVisitors * 4;
     const categoryViews = currentEvents.filter(e => e.event_type === 'category_view').length || totalVisitors * 2;
@@ -1056,7 +1523,6 @@ export const dataService = {
     const checkoutStarts = currentEvents.filter(e => e.event_type === 'checkout_start').length || totalOrdersCount + 3;
     const conversionRate = totalVisitors > 0 ? Math.round((totalOrdersCount / totalVisitors) * 1000) / 10 : 0;
 
-    // 1. Sales Growth Time Series (Daily points)
     const salesGrowthSeries: { date: string; currentSales: number; prevSales: number }[] = [];
     const daysToShow = dateRange === 'today' ? 24 : dateRange === '7d' ? 7 : 14;
 
@@ -1065,12 +1531,10 @@ export const dataService = {
       d.setDate(d.getDate() - i);
       const dateStr = d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
 
-      // Daily orders sum
       const daySales = currentOrders
         .filter(o => new Date(o.created_at).toDateString() === d.toDateString())
         .reduce((sum, o) => sum + o.final_total, 0);
 
-      // Comparison day sales
       const prevD = new Date(d);
       prevD.setDate(prevD.getDate() - daysToShow);
       const prevDaySales = prevOrders
@@ -1084,7 +1548,6 @@ export const dataService = {
       });
     }
 
-    // 2. Best-Selling Products
     const prodSalesMap = new Map<string, { name: string; units: number; revenue: number; category: string }>();
     currentOrders.forEach(o => {
       o.items.forEach(item => {
@@ -1102,7 +1565,6 @@ export const dataService = {
 
     const bestSellers = Array.from(prodSalesMap.values()).sort((a, b) => b.units - a.units);
 
-    // 3. Category Sales Comparison
     const catSalesMap = new Map<string, { category: string; sales: number; units: number }>();
     categories.forEach(c => catSalesMap.set(c.name, { category: c.name, sales: 0, units: 0 }));
 
@@ -1116,7 +1578,6 @@ export const dataService = {
     });
     const categorySales = Array.from(catSalesMap.values());
 
-    // 4. Category Performance Over Time
     const categoryPerformance = salesGrowthSeries.map(point => {
       const entry: Record<string, any> = { date: point.date };
       categories.forEach(c => {
@@ -1125,7 +1586,6 @@ export const dataService = {
       return entry;
     });
 
-    // 5. Category Product Inventory Matrix
     const categoryInventory = categories.map(cat => {
       const catProds = products.filter(p => p.category_id === cat.id && !p.is_archived);
       const activeCount = catProds.length;
@@ -1150,10 +1610,8 @@ export const dataService = {
       };
     });
 
-    // 6. Top 10 Products
     const top10Products = bestSellers.slice(0, 10);
 
-    // 7. Payment method & Order status breakdown
     const paymentBreakdown = [
       { name: 'Simulated Online / UPI', value: currentOrders.filter(o => o.payment_method === 'simulated_online').length },
       { name: 'Cash on Delivery', value: currentOrders.filter(o => o.payment_method === 'cod').length },
@@ -1167,7 +1625,6 @@ export const dataService = {
       { name: 'Cancelled / Returned', count: currentOrders.filter(o => o.order_status === 'cancelled' || o.order_status === 'returned').length },
     ];
 
-    // Low stock items (< 15)
     const lowStockProducts = products.filter(p => p.stock_quantity <= 15 && !p.is_archived);
 
     return {

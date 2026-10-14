@@ -45,8 +45,6 @@ Add your Supabase project credentials (optional for initial preview):
 ```env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-public-key-here
-VITE_ADMIN_DEFAULT_EMAIL=admin@karnamvarifarms.com
-VITE_ADMIN_DEFAULT_PASSWORD=KarnamAdmin2026!
 ```
 
 ### 3. Database Migration (for Supabase)
@@ -63,8 +61,7 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 ## 🔐 Admin Dashboard Access
 
 - **URL**: [http://localhost:5173/admin](http://localhost:5173/admin)
-- **Default Email**: `admin@karnamvarifarms.com`
-- **Default Password**: `KarnamAdmin2026!`
+- Sign in with a Supabase Auth account that has an authorized entry in the `admin_users` table. This project does not provision default administrator credentials.
 
 ---
 

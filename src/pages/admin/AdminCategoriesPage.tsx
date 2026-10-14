@@ -16,6 +16,7 @@ import {
 export const AdminCategoriesPage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,9 +32,15 @@ export const AdminCategoriesPage: React.FC = () => {
 
   const fetchCategories = async () => {
     setLoading(true);
-    const data = await dataService.getCategories(true);
-    setCategories(data);
-    setLoading(false);
+    setLoadError(null);
+    try {
+      const data = await dataService.getCategories(true);
+      setCategories(data);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Unable to load categories.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -141,6 +148,13 @@ export const AdminCategoriesPage: React.FC = () => {
           <span>Add New Category</span>
         </button>
       </div>
+
+      {loadError && (
+        <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{loadError}</span>
+        </div>
+      )}
 
       {/* Categories Table */}
       <div className="bg-white rounded-3xl border border-[#ebe0cd] shadow-2xs overflow-hidden">

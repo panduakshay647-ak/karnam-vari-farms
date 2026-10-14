@@ -14,17 +14,24 @@ export const AdminReviewsPage: React.FC = () => {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'approved' | 'pending' | 'rejected'>('all');
 
   const fetchReviews = async () => {
     setLoading(true);
-    const [revs, prods] = await Promise.all([
-      dataService.getReviews(undefined, 'all'),
-      dataService.getProducts({ includeArchived: true }),
-    ]);
-    setReviews(revs);
-    setProducts(prods);
-    setLoading(false);
+    setErrorMsg(null);
+    try {
+      const [revs, prods] = await Promise.all([
+        dataService.getReviews(undefined, 'all'),
+        dataService.getProducts({ includeArchived: true }),
+      ]);
+      setReviews(revs);
+      setProducts(prods);
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to load reviews.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -34,14 +41,24 @@ export const AdminReviewsPage: React.FC = () => {
   }, []);
 
   const handleUpdateStatus = async (id: string, status: 'approved' | 'rejected') => {
-    await dataService.updateReviewStatus(id, status);
-    fetchReviews();
+    setErrorMsg(null);
+    try {
+      await dataService.updateReviewStatus(id, status);
+      await fetchReviews();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to update review status.');
+    }
   };
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('Delete this customer review?')) return;
-    await dataService.deleteReview(id);
-    fetchReviews();
+    setErrorMsg(null);
+    try {
+      await dataService.deleteReview(id);
+      await fetchReviews();
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : 'Unable to delete review.');
+    }
   };
 
   const prodMap = new Map(products.map(p => [p.id, p.name]));
@@ -81,6 +98,12 @@ export const AdminReviewsPage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {errorMsg && (
+        <div role="alert" className="bg-rose-50 border border-rose-200 text-rose-700 p-3 rounded-xl text-xs">
+          {errorMsg}
+        </div>
+      )}
 
       {/* Reviews Table */}
       <div className="bg-white rounded-3xl border border-[#ebe0cd] shadow-2xs overflow-hidden">

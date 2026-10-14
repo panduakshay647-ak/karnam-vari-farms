@@ -40,6 +40,15 @@ export const AdminOrdersPage: React.FC = () => {
   const [adminNotes, setAdminNotes] = useState('');
   const [updating, setUpdating] = useState(false);
 
+  const openOrderModal = (ord: Order) => {
+    setSelectedOrder(ord);
+    setNewStatus(ord.order_status);
+    setCourierName(ord.courier_name || 'DTDC Express');
+    setTrackingNumber(ord.tracking_number || '');
+    setTrackingUrl(ord.tracking_url || '');
+    setAdminNotes('');
+  };
+
   const fetchOrders = async () => {
     setLoading(true);
     const data = await dataService.getOrders();
@@ -58,15 +67,6 @@ export const AdminOrdersPage: React.FC = () => {
     const unsub = dataService.subscribe('orders', fetchOrders);
     return unsub;
   }, []);
-
-  const openOrderModal = (ord: Order) => {
-    setSelectedOrder(ord);
-    setNewStatus(ord.order_status);
-    setCourierName(ord.courier_name || 'DTDC Express');
-    setTrackingNumber(ord.tracking_number || '');
-    setTrackingUrl(ord.tracking_url || '');
-    setAdminNotes('');
-  };
 
   const handleUpdateStatus = async (e: React.FormEvent) => {
     e.preventDefault();

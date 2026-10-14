@@ -33,7 +33,7 @@ export const ReturnsPolicyPage: React.FC = () => {
           </p>
           <ul className="list-disc pl-5 space-y-1 text-xs">
             <li>Please take clear photographs/video of the outer shipping box and the damaged product within <strong>48 hours</strong> of delivery.</li>
-            <li>Email the pictures along with your Order ID (e.g., <strong>AKFARMS00001</strong>) to <strong>support@karnamvarifarms.com</strong> or WhatsApp +91 98765 43210.</li>
+            <li>Email the pictures along with your Order ID (e.g., <strong>AKFARMS00001</strong>) to <strong>support@karnamvarifarms.com</strong>.</li>
             <li>Upon verification, we will immediately dispatch a fresh replacement jar at zero extra charge, or issue a 100% full refund to your original payment method.</li>
           </ul>
         </section>

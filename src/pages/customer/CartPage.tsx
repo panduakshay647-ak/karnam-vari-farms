@@ -282,16 +282,31 @@ export const CartPage: React.FC = () => {
               Order Summary
             </h3>
 
+            {/* Detailed Selected Items Breakdown */}
+            <div className="space-y-2 max-h-48 overflow-y-auto pr-1 border-b border-stone-100 pb-3">
+              {cart.map(item => (
+                <div key={item.id} className="flex justify-between items-start text-xs">
+                  <div className="pr-2">
+                    <span className="font-medium text-stone-800">{item.product_name}</span>
+                    <span className="text-stone-400 text-[11px] block">
+                      ({item.variant_title}) × {item.quantity}
+                    </span>
+                  </div>
+                  <span className="font-semibold text-stone-900 shrink-0">₹{item.price * item.quantity}</span>
+                </div>
+              ))}
+            </div>
+
             <div className="space-y-2 text-xs text-stone-600">
               <div className="flex justify-between">
-                <span>Subtotal ({totalItemCount} items)</span>
+                <span>Subtotal</span>
                 <span className="font-semibold text-stone-900">₹{subtotal}</span>
               </div>
 
               {discountAmount > 0 && (
                 <div className="flex justify-between text-emerald-700 font-medium">
                   <span>Coupon Discount</span>
-                  <span>- ₹{discountAmount}</span>
+                  <span>-₹{discountAmount}</span>
                 </div>
               )}
 
@@ -326,11 +341,6 @@ export const CartPage: React.FC = () => {
               <span>Proceed to Checkout</span>
               <ArrowRight className="w-4 h-4" />
             </button>
-
-            <div className="pt-2 text-center text-[10px] text-stone-400 flex items-center justify-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-[#2d5a27]" />
-              <span>Safe & Secure Checkout • Direct from Village Farms</span>
-            </div>
           </div>
         </div>
       </div>

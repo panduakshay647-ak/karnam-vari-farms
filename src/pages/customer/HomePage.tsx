@@ -1,17 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ProductCard } from '../../components/common/ProductCard';
+import { CatalogLoadError } from '../../components/common/CatalogLoadError';
 import { dataService } from '../../services/dataService';
-import { Product, Category, Review } from '../../types';
+import { Category } from '../../types';
 import {
   ArrowRight,
-  Sparkles,
-  ShieldCheck,
-  CheckCircle2,
-  Clock,
-  HeartHandshake,
-  ChevronRight,
-  Star,
   Copy,
   Check,
   Sun,
@@ -22,29 +15,41 @@ import {
 
 export const HomePage: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
-  const [bestsellers, setBestsellers] = useState<Product[]>([]);
-  const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
-  const [reviews, setReviews] = useState<Review[]>([]);
   const [copiedCoupon, setCopiedCoupon] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
-    // Record page view analytics
+    let active = true;
+
+    setLoading(true);
+    setCatalogError(null);
+
     dataService.trackEvent('page_view', { page: 'home' });
 
-    Promise.all([
-      dataService.getCategories(),
-      dataService.getProducts({ isBestseller: true }),
-      dataService.getProducts({ isFeatured: true }),
-      dataService.getReviews(undefined, 'approved'),
-    ]).then(([cats, bests, feats, revs]) => {
-      setCategories(cats);
-      setBestsellers(bests.slice(0, 4));
-      setFeaturedProducts(feats.slice(0, 4));
-      setReviews(revs.slice(0, 3));
-      setLoading(false);
-    });
-  }, []);
+    dataService.getCategories()
+      .then(cats => {
+        if (!active) return;
+        setCategories(cats);
+      })
+      .catch(error => {
+        if (!active) return;
+        setCategories([]);
+        setCatalogError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to load the farm catalog.'
+        );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [retryCount]);
 
   const copyCouponCode = () => {
     navigator.clipboard.writeText('AKSHAY07');
@@ -53,149 +58,119 @@ export const HomePage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-16 md:space-y-24">
+    <div className="space-y-14 md:space-y-20">
+
       {/* 1. HERO SECTION */}
-      <section className="relative overflow-hidden bg-gradient-to-b from-[#f4eee2] via-[#faf7f2] to-[#fdfbf7] py-12 md:py-20 border-b border-[#ebe0cd]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
-            {/* Left Column: Headlines & CTA */}
-            <div className="lg:col-span-7 space-y-6 text-center lg:text-left">
-              <div className="inline-flex items-center gap-2 bg-[#1b4332]/10 border border-[#1b4332]/20 px-3.5 py-1.5 rounded-full text-xs font-semibold text-[#1b4332]">
-                <Wheat className="w-4 h-4 text-[#c58940]" />
-                <span>Authentic Andhra & South Indian Farm Delicacies</span>
-              </div>
+      <section className="relative overflow-hidden border-b border-[#ebe0cd] bg-[#f4eee2]">
+        <div className="absolute inset-0 bg-gradient-to-br from-[#fdfbf7] via-[#f4eee2] to-[#ebe0cd]" />
 
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-serif font-extrabold text-[#1b4332] tracking-tight leading-[1.15]">
-                From Our Farms to <br className="hidden sm:inline" />
-                <span className="text-[#8b4513] italic">Your Family Table</span>
+        <div className="relative mx-auto grid max-w-7xl grid-cols-1 items-center gap-10 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-12 lg:gap-12 lg:px-8 lg:py-16">
+
+          <div className="space-y-6 lg:col-span-6">
+            <div className="space-y-4">
+              <h1 className="max-w-2xl font-serif text-4xl font-bold leading-[1.08] tracking-tight text-[#1b4332] sm:text-5xl lg:text-6xl">
+                Good food, rooted in{' '}
+                <span className="text-[#8b4513] italic">tradition.</span>
               </h1>
-
-              <p className="text-base sm:text-lg text-stone-600 max-w-xl mx-auto lg:mx-0 leading-relaxed">
-                Relish pure ancestral kitchen staples: stone-ground aromatic podis, hand-pounded sun-cured pickles in wood-churned oils, and traditional crispy vadiyalu. Zero preservatives, made in small unhurried batches.
-              </p>
-
-              {/* CTAs */}
-              <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4 pt-2">
-                <Link
-                  to="/shop"
-                  className="w-full sm:w-auto px-8 py-3.5 bg-[#1b4332] text-[#fdfbf7] hover:bg-[#2d5a27] font-semibold text-sm rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 group"
-                >
-                  <span>Shop Farm Fresh</span>
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Link>
-
-                <a
-                  href="#categories"
-                  className="w-full sm:w-auto px-7 py-3.5 bg-white text-stone-800 hover:bg-[#f4eee2] border border-[#ebe0cd] font-semibold text-sm rounded-xl transition-all text-center"
-                >
-                  Explore Categories
-                </a>
-              </div>
-
-              {/* USP Checklist Badges */}
-              <div className="pt-6 border-t border-[#ebe0cd]/70 grid grid-cols-2 sm:grid-cols-3 gap-3 text-left">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#2d5a27] shrink-0" />
-                  <span className="text-xs font-medium text-stone-700">Wooden Ghani Oils</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#2d5a27] shrink-0" />
-                  <span className="text-xs font-medium text-stone-700">Stone Ground Podis</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-[#2d5a27] shrink-0" />
-                  <span className="text-xs font-medium text-stone-700">Zero Artificial Additives</span>
-                </div>
-              </div>
             </div>
 
-            {/* Right Column: Hero Visual Card */}
-            <div className="lg:col-span-5 relative">
-              <div className="relative mx-auto max-w-md lg:max-w-none">
-                <div className="aspect-4/5 rounded-3xl overflow-hidden shadow-2xl border-4 border-white">
-                  <img
-                    src="https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=1000&q=80"
-                    alt="Traditional Indian Pickle and Cold-Pressed Spices"
-                    className="w-full h-full object-cover"
-                  />
-                </div>
+            <div className="flex flex-col gap-3 pt-1 sm:flex-row">
+              <Link
+                to="/shop"
+                className="group inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-[#1b4332] px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:bg-[#244b20] hover:shadow-lg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1b4332]"
+              >
+                Shop Products
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+              </Link>
+            </div>
+          </div>
 
-                {/* Floating Heritage Badge */}
-                <div className="absolute -bottom-6 -left-6 bg-white p-4 rounded-2xl shadow-xl border border-[#f4eee2] max-w-[210px] hidden sm:block">
-                  <div className="flex items-center gap-2 text-amber-500 mb-1">
-                    <Star className="w-4 h-4 fill-amber-400" />
-                    <Star className="w-4 h-4 fill-amber-400" />
-                    <Star className="w-4 h-4 fill-amber-400" />
-                    <Star className="w-4 h-4 fill-amber-400" />
-                    <Star className="w-4 h-4 fill-amber-400" />
-                  </div>
-                  <p className="text-xs font-bold text-stone-900 font-serif">
-                    “The taste of childhood in every spoonful.”
-                  </p>
-                  <p className="text-[10px] text-stone-400 mt-1">— Verified Telugu Patron</p>
-                </div>
+          <div className="relative mx-auto w-full max-w-xl lg:col-span-6 lg:max-w-none">
+            <div className="absolute -right-5 -top-5 h-28 w-28 rounded-full bg-[#c58940]/20 blur-2xl sm:h-40 sm:w-40" />
+            <div className="absolute -bottom-5 -left-5 h-32 w-32 rounded-full bg-[#1b4332]/10 blur-2xl sm:h-44 sm:w-44" />
 
-                {/* Floating Launch Offer Pill */}
-                <div className="absolute -top-4 -right-4 bg-[#c58940] text-stone-900 font-bold px-4 py-2 rounded-2xl shadow-lg text-xs uppercase tracking-wider flex items-center gap-1.5 animate-bounce">
-                  <Sparkles className="w-4 h-4 text-white" />
-                  <span>Pan-India Delivery</span>
-                </div>
-              </div>
+            <div className="relative overflow-hidden rounded-[1.75rem] border-[6px] border-white shadow-2xl sm:rounded-[2rem]">
+              <img
+                src="https://images.unsplash.com/photo-1626777552726-4a6b54c97e46?auto=format&fit=crop&w=1000&q=80"
+                alt="A traditional Indian meal with pickles and spices"
+                className="aspect-[4/3] w-full object-cover sm:aspect-[16/10] lg:aspect-[4/3]"
+                fetchPriority="high"
+              />
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2. MAIN CATEGORIES GRID */}
-      <section id="categories" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24">
-        <div className="text-center max-w-2xl mx-auto mb-12">
-          <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-            Curated Farm Collections
-          </span>
-          <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-[#1b4332] mt-1.5">
-            Four Pillars of Authentic Heritage
-          </h2>
-          <p className="text-sm text-stone-600 mt-2">
-            Every product is hand-made with seasonal farm ingredients, following traditional village methods.
+      {/* LOADING MESSAGE */}
+      {loading && (
+        <section
+          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
+          role="status"
+          aria-live="polite"
+        >
+          <p className="text-center text-sm text-stone-500">
+            Loading today's farm catalog...
           </p>
-        </div>
+        </section>
+      )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {categories.map(cat => (
-            <Link
-              key={cat.id}
-              to={`/category/${cat.slug}`}
-              className="group relative bg-white rounded-2xl border border-[#f4eee2] overflow-hidden hover:shadow-xl hover:border-[#ebe0cd] transition-all duration-300 flex flex-col"
-            >
-              <div className="aspect-4/3 overflow-hidden bg-[#faf7f2] relative">
-                <img
-                  src={cat.image_url}
-                  alt={cat.name}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-                <span className="absolute bottom-3 left-4 text-white font-serif font-bold text-xl drop-shadow-sm">
-                  {cat.name}
-                </span>
-              </div>
-              <div className="p-4 flex flex-col flex-1">
-                <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
-                  {cat.description}
-                </p>
-                <div className="mt-auto pt-3 flex items-center justify-between text-xs font-semibold text-[#1b4332] group-hover:text-[#c58940] transition-colors">
-                  <span>Explore {cat.product_count ?? 6} Items</span>
-                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+      {/* CATALOG ERROR */}
+      {catalogError && (
+        <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <CatalogLoadError
+            message={catalogError}
+            onRetry={() => setRetryCount(count => count + 1)}
+          />
+        </section>
+      )}
+
+      {/* 2. MAIN CATEGORIES GRID */}
+      {categories.length > 0 && (
+        <section
+          id="categories"
+          className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 scroll-mt-24"
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {categories.map(cat => (
+              <Link
+                key={cat.id}
+                to={`/category/${cat.slug}`}
+                className="group relative bg-white rounded-2xl border border-[#f4eee2] overflow-hidden hover:shadow-xl hover:border-[#ebe0cd] transition-all duration-300 flex flex-col"
+              >
+                <div className="aspect-4/3 overflow-hidden bg-[#faf7f2] relative">
+                  <img
+                    src={cat.image_url}
+                    alt={cat.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                  />
+
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+
+                  <span className="absolute bottom-3 left-4 text-white font-serif font-bold text-xl drop-shadow-sm">
+                    {cat.name}
+                  </span>
                 </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </section>
 
-      {/* 3. PROMO OFFER STRIP (AKSHAY07) */}
+                <div className="p-4 flex flex-col flex-1">
+                  <p className="text-xs text-stone-500 line-clamp-2 leading-relaxed">
+                    {cat.description}
+                  </p>
+
+                  <div className="mt-auto pt-3 flex items-center justify-between text-xs font-semibold text-[#1b4332] group-hover:text-[#c58940] transition-colors">
+                    <span>Explore</span>
+                    <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 3. PROMO OFFER STRIP */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-gradient-to-r from-[#1b4332] via-[#244b20] to-[#132e23] rounded-3xl p-6 sm:p-10 text-white relative overflow-hidden shadow-xl border border-[#2d5a27]">
-          {/* Subtle pattern background */}
+
           <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-10">
             <Wheat className="w-80 h-80" />
           </div>
@@ -204,9 +179,11 @@ export const HomePage: React.FC = () => {
             <span className="inline-block bg-[#c58940] text-stone-900 text-xs font-extrabold uppercase px-3 py-1 rounded-full tracking-wider">
               Special Launch Offer
             </span>
+
             <h3 className="text-2xl sm:text-3xl font-serif font-bold leading-tight">
               Get an Extra 5% OFF on Your Entire Farm Order
             </h3>
+
             <p className="text-sm text-[#dcece1] leading-relaxed">
               Use promotional coupon code at checkout. Valid on all traditional powders, pickles, vadiyalu, and wood-pressed oils.
             </p>
@@ -214,13 +191,20 @@ export const HomePage: React.FC = () => {
             <div className="pt-2 flex flex-wrap items-center gap-3">
               <div className="bg-[#132e23] border border-[#c58940] px-4 py-2.5 rounded-xl flex items-center gap-3">
                 <span className="text-xs text-[#d4a373]">Coupon Code:</span>
-                <span className="font-mono font-bold text-sm tracking-wider text-white">AKSHAY07</span>
+                <span className="font-mono font-bold text-sm tracking-wider text-white">
+                  AKSHAY07
+                </span>
+
                 <button
                   onClick={copyCouponCode}
                   className="p-1.5 hover:bg-[#2d5a27] rounded text-[#d4a373] hover:text-white transition-colors"
                   title="Copy coupon code"
                 >
-                  {copiedCoupon ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
+                  {copiedCoupon ? (
+                    <Check className="w-4 h-4 text-emerald-400" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
                 </button>
               </div>
 
@@ -235,70 +219,31 @@ export const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* 4. BESTSELLING PRODUCTS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-              Loved Across Households
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332] mt-1">
-              Bestselling Farm Staples
-            </h2>
-          </div>
-          <Link
-            to="/shop?filter=bestseller"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1b4332] hover:text-[#c58940] transition-colors"
-          >
-            <span>View All Bestsellers</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {bestsellers.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
-      </section>
-
-      {/* 5. WHY CHOOSE KARNAM VARI FARMS */}
+      {/* 4. WHY CHOOSE KARNAM VARI FARMS */}
       <section className="bg-[#f4eee2] py-16 border-y border-[#ebe0cd]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-2xl mx-auto mb-12">
             <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-              Ancestral Integrity
+              Our Promise
             </span>
+
             <h2 className="text-2xl sm:text-3xl md:text-4xl font-serif font-bold text-[#1b4332] mt-1.5">
               Why Karnam Vari Farms?
             </h2>
-            <p className="text-sm text-stone-600 mt-2">
-              We preserve age-old farming, oil extraction, and spice grinding wisdom passed down through generations.
-            </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="bg-white p-6 rounded-2xl border border-[#ebe0cd] shadow-2xs space-y-3">
               <div className="w-12 h-12 rounded-xl bg-[#f2f7f4] text-[#1b4332] flex items-center justify-center">
-                <Sun className="w-6 h-6 text-[#c58940]" />
-              </div>
-              <h3 className="font-serif font-bold text-base text-stone-900">
-                Natural Sun-Curing
-              </h3>
-              <p className="text-xs text-stone-600 leading-relaxed">
-                Vadiyalu and pickle ingredients are cured in raw sunshine on clean muslin fabric, letting solar warmth preserve natural minerals.
-              </p>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-[#ebe0cd] shadow-2xs space-y-3">
-              <div className="w-12 h-12 rounded-xl bg-[#f2f7f4] text-[#1b4332] flex items-center justify-center">
                 <Leaf className="w-6 h-6 text-[#2d5a27]" />
               </div>
+
               <h3 className="font-serif font-bold text-base text-stone-900">
-                Wooden Ghani Cold-Press
+                Grown & Sourced by Us
               </h3>
+
               <p className="text-xs text-stone-600 leading-relaxed">
-                Vaagai wood pestles rotate below 40°C. No steam heating, zero chemical deodorizing, retaining authentic nut fragrance.
+                We carefully select fresh ingredients from our own farm and trusted village harvests so only clean, natural produce goes into your food.
               </p>
             </div>
 
@@ -306,63 +251,55 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 rounded-xl bg-[#f2f7f4] text-[#1b4332] flex items-center justify-center">
                 <Flame className="w-6 h-6 text-rose-600" />
               </div>
+
               <h3 className="font-serif font-bold text-base text-stone-900">
-                Slow Wood-Embers Roasting
+                Made by Our Own Hands
               </h3>
+
               <p className="text-xs text-stone-600 leading-relaxed">
-                Lentils and spices are dry-roasted on gentle wood flame until evenly fragrant before stone pulverizing.
+                Every podi, pachadi, and vadiyalu batch is roasted, ground, and mixed by our family at home using our own traditional Andhra recipes.
               </p>
             </div>
 
             <div className="bg-white p-6 rounded-2xl border border-[#ebe0cd] shadow-2xs space-y-3">
               <div className="w-12 h-12 rounded-xl bg-[#f2f7f4] text-[#1b4332] flex items-center justify-center">
-                <HeartHandshake className="w-6 h-6 text-[#8b4513]" />
+                <Sun className="w-6 h-6 text-[#c58940]" />
               </div>
+
               <h3 className="font-serif font-bold text-base text-stone-900">
-                Direct Village Fair Trade
+                Pure & Homemade Quality
               </h3>
+
               <p className="text-xs text-stone-600 leading-relaxed">
-                Every purchase directly empowers local rural women artisans, farmers, and traditional oil pressers in Guntur and surrounding regions.
+                We sun-dry our ingredients naturally and extract pure cold-pressed oils without any artificial colors, flavours, or factory shortcuts.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-2xl border border-[#ebe0cd] shadow-2xs space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-[#f2f7f4] text-[#1b4332] flex items-center justify-center">
+                <Wheat className="w-6 h-6 text-[#8b4513]" />
+              </div>
+
+              <h3 className="font-serif font-bold text-base text-stone-900">
+                Packed Fresh for Your Home
+              </h3>
+
+              <p className="text-xs text-stone-600 leading-relaxed">
+                We prepare our items in small batches and pack them hygienically ourselves so they reach your dining table with real homemade taste.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 6. FEATURED DELICACIES */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-8 gap-4">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-              Handcrafted Treasures
-            </span>
-            <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332] mt-1">
-              Featured Farm Delicacies
-            </h2>
-          </div>
-          <Link
-            to="/shop?filter=featured"
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1b4332] hover:text-[#c58940] transition-colors"
-          >
-            <span>View All Featured</span>
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {featuredProducts.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
-      </section>
-
-      {/* 7. FARM-TO-HOME PROCESS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* 5. FARM-TO-HOME PROCESS */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
         <div className="bg-[#faf7f2] rounded-3xl p-8 sm:p-12 border border-[#ebe0cd]">
           <div className="text-center max-w-xl mx-auto mb-10">
             <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
               Transparent Journey
             </span>
+
             <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332] mt-1.5">
               The Farm-to-Home Journey
             </h2>
@@ -373,7 +310,11 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 mx-auto rounded-full bg-[#1b4332] text-white font-serif font-bold text-lg flex items-center justify-center shadow-md">
                 1
               </div>
-              <h4 className="font-semibold text-stone-900 text-sm">Native Farm Harvest</h4>
+
+              <h4 className="font-semibold text-stone-900 text-sm">
+                Native Farm Harvest
+              </h4>
+
               <p className="text-xs text-stone-500 leading-relaxed">
                 Plump groundnuts, native sesame, sour green mangoes, and sorrel leaves picked at peak maturity.
               </p>
@@ -383,7 +324,11 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 mx-auto rounded-full bg-[#1b4332] text-white font-serif font-bold text-lg flex items-center justify-center shadow-md">
                 2
               </div>
-              <h4 className="font-semibold text-stone-900 text-sm">Traditional Processing</h4>
+
+              <h4 className="font-semibold text-stone-900 text-sm">
+                Traditional Processing
+              </h4>
+
               <p className="text-xs text-stone-500 leading-relaxed">
                 Stone grinding, wooden ghani churning, and sun drying without high-speed industrial cutters.
               </p>
@@ -393,7 +338,11 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 mx-auto rounded-full bg-[#1b4332] text-white font-serif font-bold text-lg flex items-center justify-center shadow-md">
                 3
               </div>
-              <h4 className="font-semibold text-stone-900 text-sm">Glass & Tin Curing</h4>
+
+              <h4 className="font-semibold text-stone-900 text-sm">
+                Glass & Tin Curing
+              </h4>
+
               <p className="text-xs text-stone-500 leading-relaxed">
                 Stored in sterile food-grade glass jars and virgin tins to preserve fragile essential aromas.
               </p>
@@ -403,107 +352,16 @@ export const HomePage: React.FC = () => {
               <div className="w-12 h-12 mx-auto rounded-full bg-[#c58940] text-stone-900 font-serif font-bold text-lg flex items-center justify-center shadow-md">
                 4
               </div>
-              <h4 className="font-semibold text-stone-900 text-sm">Safe Express Dispatch</h4>
+
+              <h4 className="font-semibold text-stone-900 text-sm">
+                Safe Express Dispatch
+              </h4>
+
               <p className="text-xs text-stone-500 leading-relaxed">
                 Dispatched with multi-layer protective packaging right to your city address in 3–5 working days.
               </p>
             </div>
           </div>
-        </div>
-      </section>
-
-      {/* 8. CUSTOMER REVIEWS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center max-w-2xl mx-auto mb-10">
-          <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-            From Happy Families
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332] mt-1.5">
-            What Our Patrons Say
-          </h2>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {reviews.map(rev => (
-            <div
-              key={rev.id}
-              className="bg-white p-6 rounded-2xl border border-[#f4eee2] shadow-xs flex flex-col justify-between space-y-4"
-            >
-              <div className="space-y-2">
-                <div className="flex items-center gap-1 text-amber-500">
-                  {Array.from({ length: rev.rating }).map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
-                  ))}
-                </div>
-                <h4 className="font-serif font-bold text-stone-900 text-sm">
-                  “{rev.title || 'Authentic and heavenly!'}”
-                </h4>
-                <p className="text-xs text-stone-600 leading-relaxed italic">
-                  {rev.comment}
-                </p>
-              </div>
-
-              <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-xs">
-                <span className="font-semibold text-stone-800">{rev.user_name}</span>
-                <span className="text-emerald-700 font-medium text-[11px] flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Verified Buyer
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* 9. FAQ ACCORDION PREVIEW */}
-      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 pb-8">
-        <div className="text-center mb-8">
-          <span className="text-xs font-bold uppercase tracking-widest text-[#8b4513]">
-            Common Queries
-          </span>
-          <h2 className="text-2xl sm:text-3xl font-serif font-bold text-[#1b4332] mt-1">
-            Frequently Asked Questions
-          </h2>
-        </div>
-
-        <div className="space-y-4">
-          <details className="group bg-white p-5 rounded-2xl border border-[#ebe0cd] cursor-pointer">
-            <summary className="font-serif font-semibold text-sm text-stone-900 flex items-center justify-between list-none">
-              <span>Do your pickles contain vinegar or artificial chemical preservatives?</span>
-              <ChevronRight className="w-4 h-4 text-stone-400 group-open:rotate-90 transition-transform" />
-            </summary>
-            <p className="text-xs text-stone-600 mt-3 leading-relaxed">
-              Never. We use only ancestral preservation: unrefined cold-pressed sesame or groundnut oil, naturally sun-cured rock salt, and authentic sour tamarind or gongura leaves.
-            </p>
-          </details>
-
-          <details className="group bg-white p-5 rounded-2xl border border-[#ebe0cd] cursor-pointer">
-            <summary className="font-serif font-semibold text-sm text-stone-900 flex items-center justify-between list-none">
-              <span>How are Karnam Vari Farms cold-pressed oils extracted?</span>
-              <ChevronRight className="w-4 h-4 text-stone-400 group-open:rotate-90 transition-transform" />
-            </summary>
-            <p className="text-xs text-stone-600 mt-3 leading-relaxed">
-              We extract our oils using traditional wooden mortars (Marachekku) carved from Vaagai wood. The friction never exceeds room temperature, keeping sensitive nutrients, unrefined antioxidants, and natural aroma intact.
-            </p>
-          </details>
-
-          <details className="group bg-white p-5 rounded-2xl border border-[#ebe0cd] cursor-pointer">
-            <summary className="font-serif font-semibold text-sm text-stone-900 flex items-center justify-between list-none">
-              <span>What is the delivery time across India?</span>
-              <ChevronRight className="w-4 h-4 text-stone-400 group-open:rotate-90 transition-transform" />
-            </summary>
-            <p className="text-xs text-stone-600 mt-3 leading-relaxed">
-              Orders within Andhra Pradesh & Telangana deliver in 2-3 business days. Metro cities across India (Bengaluru, Chennai, Mumbai, Delhi) take 3-5 business days. Remote locations may take 5-7 business days.
-            </p>
-          </details>
-        </div>
-
-        <div className="text-center mt-6">
-          <Link
-            to="/faq"
-            className="text-xs font-semibold text-[#1b4332] hover:text-[#c58940] underline underline-offset-4"
-          >
-            Read all customer FAQs &rarr;
-          </Link>
         </div>
       </section>
     </div>
