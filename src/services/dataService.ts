@@ -949,7 +949,7 @@ export const dataService = {
     return true;
   },
 
-  // ---------------- Orders & Atomic Checkout ----------------
+  // ---------------- Orders & Direct Client Checkout (Bypassing RPC) ----------------
   async getNextOrderId(): Promise<string> {
     const currentSeq = parseInt(localStorage.getItem(STORAGE_KEYS.ORDER_COUNTER) || '4', 10);
     const orderId = `AKFARMS${String(currentSeq).padStart(5, '0')}`;
@@ -969,48 +969,149 @@ export const dataService = {
     if (isSupabaseConfigured) {
       const client = requireSupabaseClient();
       if (params.items.length === 0) return { success: false, error: 'Cart is empty.' };
-      const invalidItem = params.items.find(item =>
-        !isUuid(item.product_id) ||
-        !isUuid(item.variant_id) ||
-        !Number.isInteger(item.quantity) ||
-        item.quantity <= 0
-      );
-      if (invalidItem) {
-        return {
-          success: false,
-          error: 'Your cart contains an invalid or outdated product. Refresh the catalog and add the item again.',
-        };
+
+      try {
+        let calculatedSubtotal = 0;
+        const orderItemsToInsert: any[] = [];
+
+        // 1. Validate items and calculate subtotal
+        for (const item of params.items) {
+          const { data: product, error: prodErr } = await client
+            .from('products')
+            .select('id, name, is_active, is_archived')
+            .eq('id', item.product_id)
+            .single();
+
+          if (prodErr || !product || !product.is_active || product.is_archived) {
+            return { success: false, error: 'Product is no longer available.' };
+          }
+
+          const { data: variant, error: varErr } = await client
+            .from('product_variants')
+            .select('id, title, sku, price, stock_quantity')
+            .eq('id', item.variant_id)
+            .single();
+
+          if (varErr || !variant) {
+            return { success: false, error: 'Product variant not found.' };
+          }
+
+          if (variant.stock_quantity < item.quantity) {
+            return { success: false, error: `Insufficient stock for ${product.name} (${variant.title}).` };
+          }
+
+          const itemTotal = Number(variant.price) * item.quantity;
+          calculatedSubtotal += itemTotal;
+
+          orderItemsToInsert.push({
+            product_id: product.id,
+            variant_id: variant.id,
+            product_name: product.name,
+            variant_title: variant.title,
+            category_name: 'General',
+            sku: variant.sku,
+            unit_price: Number(variant.price),
+            quantity: item.quantity,
+            total_price: itemTotal,
+          });
+        }
+
+        // 2. Handle coupon discount safely if present
+        let discountAmount = 0;
+        const cleanCouponCode = params.coupon_code && params.coupon_code.trim() !== '' ? params.coupon_code.trim() : null;
+
+        if (cleanCouponCode) {
+          const { data: couponData } = await client
+            .from('coupons')
+            .select('*')
+            .ilike('code', cleanCouponCode)
+            .eq('is_active', true)
+            .maybeSingle();
+
+          if (couponData) {
+            if (couponData.discount_type === 'percentage') {
+              discountAmount = (calculatedSubtotal * Number(couponData.discount_value)) / 100;
+              if (couponData.max_discount_amount && discountAmount > Number(couponData.max_discount_amount)) {
+                discountAmount = Number(couponData.max_discount_amount);
+              }
+            } else {
+              discountAmount = Number(couponData.discount_value);
+            }
+            discountAmount = Math.min(discountAmount, calculatedSubtotal);
+          }
+        }
+
+        const discountedSubtotal = calculatedSubtotal - discountAmount;
+        const deliveryCharge = discountedSubtotal >= 999 ? 0 : 50;
+        const finalTotal = Math.round((discountedSubtotal + deliveryCharge) * 100) / 100;
+
+        // Generate Order ID sequence number
+        const orderIdCode = await this.getNextOrderId();
+        const customerEmail = params.customer_email && params.customer_email.trim() !== '' 
+          ? params.customer_email.trim() 
+          : 'guest@karnamvarifarms.com';
+
+        // 3. Insert into orders table directly
+        const { data: newOrderRow, error: orderErr } = await client
+          .from('orders')
+          .insert({
+            order_id: orderIdCode,
+            customer_name: params.customer_name,
+            customer_email: customerEmail,
+            customer_phone: params.customer_phone,
+            shipping_address: params.shipping_address,
+            subtotal: calculatedSubtotal,
+            discount_amount: discountAmount,
+            delivery_charge: deliveryCharge,
+            final_total: finalTotal,
+            coupon_code: cleanCouponCode,
+            payment_method: params.payment_method,
+            payment_status: params.payment_method === 'simulated_online' ? 'completed' : 'pending',
+            order_status: 'confirmed',
+          })
+          .select()
+          .single();
+
+        if (orderErr || !newOrderRow) {
+          return { success: false, error: `Unable to save order: ${orderErr?.message || 'Unknown error'}` };
+        }
+
+        // 4. Insert order items and deduct stock
+        for (const item of orderItemsToInsert) {
+          await client.from('order_items').insert({
+            order_id: newOrderRow.id,
+            ...item,
+          });
+
+          // Deduct stock
+          const { data: currentVar } = await client
+            .from('product_variants')
+            .select('stock_quantity')
+            .eq('id', item.variant_id)
+            .single();
+
+          if (currentVar) {
+            await client
+              .from('product_variants')
+              .update({ stock_quantity: Math.max(0, currentVar.stock_quantity - item.quantity) })
+              .eq('id', item.variant_id);
+          }
+        }
+
+        // 5. Add order status history entry
+        await client.from('order_status_history').insert({
+          order_id: newOrderRow.id,
+          status: 'confirmed',
+          note: 'Order placed successfully.',
+          updated_by: 'Customer',
+        });
+
+        const fullOrder = await this.getOrderById(newOrderRow.id);
+        notifyListeners('orders');
+        return { success: true, order: fullOrder || undefined };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : 'Checkout failed.' };
       }
-
-      // Ensure empty or blank coupon codes are passed as null to prevent database unassigned record errors
-      const cleanCouponCode = params.coupon_code && params.coupon_code.trim() !== '' 
-        ? params.coupon_code.trim() 
-        : null;
-
-      // Provide a safe fallback guest email to satisfy database NOT NULL constraints
-      const customerEmail = params.customer_email && params.customer_email.trim() !== ''
-        ? params.customer_email.trim()
-        : 'guest@karnamvarifarms.com';
-
-      const { data, error } = await client.rpc('place_order_atomic', {
-        p_customer_name: params.customer_name,
-        p_customer_email: customerEmail,
-        p_customer_phone: params.customer_phone,
-        p_shipping_address: params.shipping_address,
-        p_payment_method: params.payment_method,
-        p_items: params.items,
-        p_coupon_code: cleanCouponCode,
-      });
-      if (error) return { success: false, error: `Unable to place order: ${error.message}` };
-
-      const rpcResult = data as any;
-      if (!rpcResult?.success || !rpcResult.order_id) {
-        return { success: false, error: 'The order service returned an invalid confirmation.' };
-      }
-
-      const order = mapOrder(rpcResult);
-      notifyListeners('orders');
-      return { success: true, order };
     }
 
     const products: Product[] = JSON.parse(localStorage.getItem(STORAGE_KEYS.PRODUCTS) || '[]');
