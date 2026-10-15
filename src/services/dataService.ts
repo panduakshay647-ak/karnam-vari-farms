@@ -949,7 +949,7 @@ export const dataService = {
     return true;
   },
 
-  // ---------------- Orders & Fallback Safe Local Checkout ----------------
+  // ---------------- Orders & Safe Fallback Local Checkout ----------------
   async getNextOrderId(): Promise<string> {
     const currentSeq = parseInt(localStorage.getItem(STORAGE_KEYS.ORDER_COUNTER) || '4', 10);
     const orderId = `AKFARMS${String(currentSeq).padStart(5, '0')}`;
@@ -975,7 +975,7 @@ export const dataService = {
 
     for (const item of params.items) {
       const product = products.find(p => p.id === item.product_id);
-      if (!product || !product.is_active || product.is_archived) {
+      if (!product) {
         return { success: false, error: `Product is no longer available.` };
       }
 
