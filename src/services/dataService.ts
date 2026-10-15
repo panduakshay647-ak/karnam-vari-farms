@@ -982,6 +982,11 @@ export const dataService = {
         };
       }
 
+      // Ensure empty or blank coupon codes are passed as null to prevent database unassigned record errors
+      const cleanCouponCode = params.coupon_code && params.coupon_code.trim() !== '' 
+        ? params.coupon_code.trim() 
+        : null;
+
       const { data, error } = await client.rpc('place_order_atomic', {
         p_customer_name: params.customer_name,
         p_customer_email: params.customer_email || null,
@@ -989,7 +994,7 @@ export const dataService = {
         p_shipping_address: params.shipping_address,
         p_payment_method: params.payment_method,
         p_items: params.items,
-        p_coupon_code: params.coupon_code || null,
+        p_coupon_code: cleanCouponCode,
       });
       if (error) return { success: false, error: `Unable to place order: ${error.message}` };
 
