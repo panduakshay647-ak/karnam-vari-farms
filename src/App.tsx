@@ -56,7 +56,22 @@ export const App: React.FC = () => {
       <AuthProvider>
         <CartProvider>
           <Routes>
-            {/* Customer Store Routes */}
+            {/* 1. Protected Admin Portal Routes (Must be at the top for priority) */}
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminOverviewPage />} />
+              <Route path="categories" element={<AdminCategoriesPage />} />
+              <Route path="products" element={<AdminProductsPage />} />
+              <Route path="inventory" element={<AdminInventoryPage />} />
+              <Route path="orders" element={<AdminOrdersPage />} />
+              <Route path="coupons" element={<AdminCouponsPage />} />
+              <Route path="customers" element={<AdminCustomersPage />} />
+              <Route path="analytics" element={<AdminAnalyticsPage />} />
+              <Route path="sales" element={<AdminSalesPage />} />
+              <Route path="reviews" element={<AdminReviewsPage />} />
+              <Route path="settings" element={<AdminSettingsPage />} />
+            </Route>
+
+            {/* 2. Customer Store Routes */}
             <Route path="/" element={<CustomerLayout />}>
               <Route index element={<HomePage />} />
               <Route path="shop" element={<ShopPage />} />
@@ -76,21 +91,6 @@ export const App: React.FC = () => {
               <Route path="privacy-policy" element={<PrivacyPolicyPage />} />
               <Route path="terms" element={<TermsPage />} />
               <Route path="*" element={<NotFoundPage />} />
-            </Route>
-
-            {/* Protected Admin Portal Routes */}
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<AdminOverviewPage />} />
-              <Route path="categories" element={<AdminCategoriesPage />} />
-              <Route path="products" element={<AdminProductsPage />} />
-              <Route path="inventory" element={<AdminInventoryPage />} />
-              <Route path="orders" element={<AdminOrdersPage />} />
-              <Route path="coupons" element={<AdminCouponsPage />} />
-              <Route path="customers" element={<AdminCustomersPage />} />
-              <Route path="analytics" element={<AdminAnalyticsPage />} />
-              <Route path="sales" element={<AdminSalesPage />} />
-              <Route path="reviews" element={<AdminReviewsPage />} />
-              <Route path="settings" element={<AdminSettingsPage />} />
             </Route>
           </Routes>
         </CartProvider>
