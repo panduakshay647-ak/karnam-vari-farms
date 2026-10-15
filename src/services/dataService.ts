@@ -987,9 +987,14 @@ export const dataService = {
         ? params.coupon_code.trim() 
         : null;
 
+      // Provide a safe fallback guest email to satisfy database NOT NULL constraints
+      const customerEmail = params.customer_email && params.customer_email.trim() !== ''
+        ? params.customer_email.trim()
+        : 'guest@karnamvarifarms.com';
+
       const { data, error } = await client.rpc('place_order_atomic', {
         p_customer_name: params.customer_name,
-        p_customer_email: params.customer_email || null,
+        p_customer_email: customerEmail,
         p_customer_phone: params.customer_phone,
         p_shipping_address: params.shipping_address,
         p_payment_method: params.payment_method,
@@ -1093,7 +1098,7 @@ export const dataService = {
       id: orderUuid,
       order_id: orderIdCode,
       customer_name: params.customer_name,
-      customer_email: params.customer_email || '',
+      customer_email: params.customer_email || 'guest@karnamvarifarms.com',
       customer_phone: params.customer_phone,
       shipping_address: params.shipping_address,
       subtotal: calculatedSubtotal,
